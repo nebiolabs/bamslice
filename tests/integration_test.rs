@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 
 const TEST_BAM: &str = "tests/fixtures/emseq-test1.bam";
@@ -11,8 +12,24 @@ fn get_file_size(path: &str) -> u64 {
     fs::metadata(path).unwrap().len()
 }
 
+/// Extract read names from FASTQ content
+fn extract_read_names(fastq_content: &str) -> HashSet<String> {
+    fastq_content
+        .lines()
+        .enumerate()
+        .filter_map(|(i, line)| {
+            // Every 4th line starting at 0 is a read name (@ line)
+            if i % 4 == 0 && line.starts_with('@') {
+                Some(line[1..].to_string()) // Remove '@' prefix
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 #[test]
-fn test_split_processing_produces_all_reads() {
+fn test_split_processing_produces_all_reads_no_dupes() {
     // Check that test file exists
     assert!(
         std::path::Path::new(TEST_BAM).exists(),
@@ -29,28 +46,34 @@ fn test_split_processing_produces_all_reads() {
     // Process first half in memory
     let mut chunk1_buffer = Vec::new();
     let chunk1_reads =
-        bam_block_extractor::process_blocks(TEST_BAM, 0, half, None, &mut chunk1_buffer).unwrap();
+        bamslice::process_blocks(TEST_BAM, 0, half, None, &mut chunk1_buffer).unwrap();
 
     // Process second half in memory
     let mut chunk2_buffer = Vec::new();
     let chunk2_reads =
-        bam_block_extractor::process_blocks(TEST_BAM, half, file_size, None, &mut chunk2_buffer)
-            .unwrap();
+        bamslice::process_blocks(TEST_BAM, half, file_size, None, &mut chunk2_buffer).unwrap();
 
     // Convert to strings
     let chunk1_content = String::from_utf8(chunk1_buffer).unwrap();
     let chunk2_content = String::from_utf8(chunk2_buffer).unwrap();
 
+    // Extract read names from both chunks
+    let chunk1_names = extract_read_names(&chunk1_content);
+    let chunk2_names = extract_read_names(&chunk2_content);
+
+    // Find any duplicate read names (intersection of the two sets)
+    let duplicates: Vec<_> = chunk1_names.intersection(&chunk2_names).collect();
+
+    assert!(
+        duplicates.is_empty(),
+        "Found {} duplicate read(s) appearing in both chunks: {:?}",
+        duplicates.len(),
+        duplicates.iter().take(10).collect::<Vec<_>>() // Show first 10 duplicates
+    );
+
     let chunk1_fastq_reads = count_fastq_reads(&chunk1_content);
     let chunk2_fastq_reads = count_fastq_reads(&chunk2_content);
     let total_reads = chunk1_fastq_reads + chunk2_fastq_reads;
-
-    eprintln!("Chunk 1 reads (returned): {}", chunk1_reads);
-    eprintln!("Chunk 1 reads (FASTQ): {}", chunk1_fastq_reads);
-    eprintln!("Chunk 2 reads (returned): {}", chunk2_reads);
-    eprintln!("Chunk 2 reads (FASTQ): {}", chunk2_fastq_reads);
-    eprintln!("Total reads: {}", total_reads);
-    eprintln!("Expected reads: {}", EXPECTED_READS);
 
     // Verify that return values match FASTQ content
     assert_eq!(
@@ -73,10 +96,6 @@ fn test_split_processing_produces_all_reads() {
     assert!(chunk1_reads > 0, "Chunk 1 should have reads");
     assert!(chunk2_reads > 0, "Chunk 2 should have reads");
 
-    println!(
-        "✓ Test passed: split processing produces all {} reads",
-        EXPECTED_READS
-    );
     println!("  Chunk 1: {} reads", chunk1_reads);
     println!("  Chunk 2: {} reads", chunk2_reads);
 }
@@ -87,26 +106,20 @@ fn test_whole_file_processing() {
 
     // Test processing the entire file in one go, in memory
     let mut buffer = Vec::new();
-    let read_count =
-        bam_block_extractor::process_blocks(TEST_BAM, 0, file_size, None, &mut buffer).unwrap();
+    let read_count = bamslice::process_blocks(TEST_BAM, 0, file_size, None, &mut buffer).unwrap();
 
     let content = String::from_utf8(buffer).unwrap();
     let fastq_reads = count_fastq_reads(&content);
 
     assert_eq!(
-        read_count, EXPECTED_READS,
-        "Whole file read count mismatch: {} vs {}",
-        read_count, EXPECTED_READS
+        read_count, fastq_reads,
+        "Returned read count doesn't match FASTQ content {} vs {}",
+        read_count, fastq_reads
     );
 
     assert_eq!(
         fastq_reads, EXPECTED_READS,
         "FASTQ record count mismatch: {} vs {}",
         fastq_reads, EXPECTED_READS
-    );
-
-    println!(
-        "✓ Test passed: whole file processing produces {} reads",
-        EXPECTED_READS
     );
 }

@@ -1,4 +1,4 @@
-# BAM Block Extractor
+# bamslice
 
 Extract specific byte ranges from BAM/CRAM files and convert to interleaved FASTQ format. Designed for parallel processing across compute nodes without requiring pre-indexing.
 
@@ -17,12 +17,12 @@ Extract specific byte ranges from BAM/CRAM files and convert to interleaved FAST
 cargo build --release
 ```
 
-Binary: `target/release/bam-block-extractor`
+Binary: `target/release/bamslice`
 
 ## Usage
 
 ```bash
-bam-block-extractor \
+bamslice \
   --input input.bam \
   --start-offset 0 \
   --end-offset 10000000 \
@@ -45,22 +45,22 @@ FILE_SIZE=$(stat -f%z input.bam)  # macOS
 # FILE_SIZE=$(stat -c%s input.bam)  # Linux
 HALF=$((FILE_SIZE / 2))
 
-bam-block-extractor -i input.bam -s 0 -e $HALF -o first_half.fastq
+bamslice -i input.bam -s 0 -e $HALF -o first_half.fastq
 ```
 
 **Extract second half (no overlap!):**
 ```bash
-bam-block-extractor -i input.bam -s $HALF -e $FILE_SIZE -o second_half.fastq
+bamslice -i input.bam -s $HALF -e $FILE_SIZE -o second_half.fastq
 ```
 
 **Process CRAM with reference:**
 ```bash
-bam-block-extractor -i input.cram -s 0 -e 1000000 -r reference.fa -o output.fastq
+bamslice -i input.cram -s 0 -e 1000000 -r reference.fa -o output.fastq
 ```
 
 **Output to stdout:**
 ```bash
-bam-block-extractor -i input.bam -s 0 -e 1000000 | head -n 4
+bamslice -i input.bam -s 0 -e 1000000 | head -n 4
 ```
 
 ## Parallel Processing
@@ -72,32 +72,26 @@ The tool uses byte ranges, making it trivial to parallelize without coordination
 # parallel_bam2fastq.sh
 
 BAM_FILE="input.bam"
-NUM_JOBS=100
+CHUNK_SIZE=$((100 * 1024 * 1024))  # 100 MB chunks
 
 # Get file size
 FILE_SIZE=$(stat -f%z "$BAM_FILE")  # macOS
 # FILE_SIZE=$(stat -c%s "$BAM_FILE")  # Linux
 
-# Calculate chunk size
-CHUNK_SIZE=$((FILE_SIZE / NUM_JOBS))
-
 # Submit jobs (example: SLURM)
-for i in $(seq 0 $((NUM_JOBS - 1))); do
-    START=$((i * CHUNK_SIZE))
-    END=$(((i + 1) * CHUNK_SIZE))
+JOB_ID=0
+for START in $(seq 0 $CHUNK_SIZE $FILE_SIZE); do
+    END=$((START + CHUNK_SIZE))
 
-    # For last chunk, use file size as end
-    if [ $i -eq $((NUM_JOBS - 1)) ]; then
-        END=$FILE_SIZE
-    fi
-
-    sbatch --job-name=bam2fq_${i} \
-           --output=logs/job_${i}.log \
-           --wrap="bam-block-extractor \
+    sbatch --job-name=bam2fq_${JOB_ID} \
+           --output=logs/job_${JOB_ID}.log \
+           --wrap="bamslice \
                -i $BAM_FILE \
                -s $START \
                -e $END \
-               -o output/chunk_${i}.fastq"
+               -o output/chunk_${JOB_ID}.fastq"
+    
+    JOB_ID=$((JOB_ID + 1))
 done
 
 # After all jobs complete, merge results
@@ -107,14 +101,24 @@ cat output/chunk_*.fastq > final.fastq
 ### SGE Example
 
 ```bash
-for i in $(seq 0 $((NUM_JOBS - 1))); do
-    START=$((i * CHUNK_SIZE))
-    END=$(((i + 1) * CHUNK_SIZE))
+JOB_ID=0
+for START in $(seq 0 $CHUNK_SIZE $FILE_SIZE); do
+    END=$((START + CHUNK_SIZE))
 
-    qsub -N bam2fq_${i} -o logs/job_${i}.log -b y \
-        bam-block-extractor -i $BAM_FILE -s $START -e $END \
-        -o output/chunk_${i}.fastq
+    qsub -N bam2fq_${JOB_ID} -o logs/job_${JOB_ID}.log -b y \
+        bamslice -i $BAM_FILE -s $START -e $END \
+        -o output/chunk_${JOB_ID}.fastq
+    
+    JOB_ID=$((JOB_ID + 1))
 done
+```
+
+### Nextflow Example
+
+See `example.nf` for a complete pipeline that pipes bamslice output through fastp for QC/filtering. The example uses `wc -l` to count reads, but includes a comment showing how to replace this with an aligner (e.g., `bwa mem`) or other downstream tools.
+
+```bash
+nextflow run example.nf --bam input.bam --chunk_size 104857600
 ```
 
 ## How It Works

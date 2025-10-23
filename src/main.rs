@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use bam_block_extractor::process_blocks;
+use bamslice::process_blocks;
 use clap::Parser;
 
 /// Extract specific BGZF blocks from BAM/CRAM files and convert to interleaved FASTQ

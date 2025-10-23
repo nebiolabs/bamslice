@@ -152,7 +152,7 @@ pub fn process_blocks(
     // Seek to the aligned starting offset using virtual offset
     // Only seek if not starting from the beginning (offset 0 starts after header automatically)
     if aligned_start > 0 {
-        let virtual_offset = aligned_start << 16;
+        let virtual_offset = aligned_start << 16; // https://samtools.github.io/hts-specs/SAMv1.pdf
         reader
             .seek(virtual_offset as i64)
             .context("Failed to seek to start offset")?;
