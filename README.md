@@ -31,10 +31,9 @@ bamslice \
 
 ### Arguments
 
-- `--input, -i`: Input BAM or CRAM file
+- `--input, -i`: Input BAM
 - `--start-offset, -s`: Starting byte offset (will find next BGZF block at or after this offset)
 - `--end-offset, -e`: Ending byte offset (will stop when reaching a block at or after this offset)
-- `--reference, -r`: Reference FASTA for CRAM files (optional)
 - `--output, -o`: Output FASTQ file (default: stdout)
 
 ### Examples
@@ -53,11 +52,6 @@ bamslice -i input.bam -s 0 -e $HALF -o first_half.fastq
 bamslice -i input.bam -s $HALF -e $FILE_SIZE -o second_half.fastq
 ```
 
-**Process CRAM with reference:**
-```bash
-bamslice -i input.cram -s 0 -e 1000000 -r reference.fa -o output.fastq
-```
-
 **Output to stdout:**
 ```bash
 bamslice -i input.bam -s 0 -e 1000000 | head -n 4
@@ -65,57 +59,11 @@ bamslice -i input.bam -s 0 -e 1000000 | head -n 4
 
 ## Parallel Processing
 
-The tool uses byte ranges, making it trivial to parallelize without coordination:
-
-```bash
-#!/bin/bash
-# parallel_bam2fastq.sh
-
-BAM_FILE="input.bam"
-CHUNK_SIZE=$((100 * 1024 * 1024))  # 100 MB chunks
-
-# Get file size
-FILE_SIZE=$(stat -f%z "$BAM_FILE")  # macOS
-# FILE_SIZE=$(stat -c%s "$BAM_FILE")  # Linux
-
-# Submit jobs (example: SLURM)
-JOB_ID=0
-for START in $(seq 0 $CHUNK_SIZE $FILE_SIZE); do
-    END=$((START + CHUNK_SIZE))
-
-    sbatch --job-name=bam2fq_${JOB_ID} \
-           --output=logs/job_${JOB_ID}.log \
-           --wrap="bamslice \
-               -i $BAM_FILE \
-               -s $START \
-               -e $END \
-               -o output/chunk_${JOB_ID}.fastq"
-    
-    JOB_ID=$((JOB_ID + 1))
-done
-
-# After all jobs complete, merge results
-cat output/chunk_*.fastq > final.fastq
-```
-
-### SGE Example
-
-```bash
-JOB_ID=0
-for START in $(seq 0 $CHUNK_SIZE $FILE_SIZE); do
-    END=$((START + CHUNK_SIZE))
-
-    qsub -N bam2fq_${JOB_ID} -o logs/job_${JOB_ID}.log -b y \
-        bamslice -i $BAM_FILE -s $START -e $END \
-        -o output/chunk_${JOB_ID}.fastq
-    
-    JOB_ID=$((JOB_ID + 1))
-done
-```
+The tool uses byte ranges, making it trivial to parallelize without coordination
 
 ### Nextflow Example
 
-See `example.nf` for a complete pipeline that pipes bamslice output through fastp for QC/filtering. The example uses `wc -l` to count reads, but includes a comment showing how to replace this with an aligner (e.g., `bwa mem`) or other downstream tools.
+See `example.nf` for a  pipeline that pipes bamslice output through fastp for QC/filtering.
 
 ```bash
 nextflow run example.nf --bam input.bam --chunk_size 104857600
@@ -132,7 +80,7 @@ nextflow run example.nf --bam input.bam --chunk_size 104857600
 ### Why Byte Ranges?
 
 - **No indexing overhead**: Don't need to scan the entire file first
-- **Trivial parallelization**: Just divide file size by number of jobs
+- **Trivial parallelization**: Just choose your start/end offsets (see example nextflow)
 - **No coordination**: Each process works independently
 - **Guaranteed coverage**: Contiguous ranges ensure no reads are skipped
 - **No duplication**: Block alignment ensures no reads are processed twice
@@ -142,10 +90,22 @@ nextflow run example.nf --bam input.bam --chunk_size 104857600
 Run the test suite to verify correctness:
 
 ```bash
-./test.sh
+cargo test
 ```
 
-This compares output against `samtools fastq` using a split-and-merge approach.
+## Development Commands
+
+Run a coverage analysis:
+
+```bash
+bash ./coverage.sh && open target/coverage/html/index.html
+```
+
+Build a flamegraph for performance profiling:
+
+```bash
+bash ./flamegraph.sh && open flamegraph.svg
+```
 
 ## License
 
