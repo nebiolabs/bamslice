@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use bamslice::process_blocks;
 use clap::Parser;
+use log::info;
 
 /// Extract specific BGZF blocks from BAM/CRAM files and convert to interleaved FASTQ
 #[derive(Parser, Debug)]
@@ -25,10 +26,18 @@ struct Args {
     /// Output file (default: stdout)
     #[arg(short, long)]
     output: Option<String>,
+
+    /// Log level (off, error, warn, info, debug, trace)
+    #[arg(short = 'l', long, default_value = "info")]
+    log_level: String,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
+
+    // Initialize logger with specified level (can be overridden by RUST_LOG env var)
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(&args.log_level))
+        .init();
 
     // Validate arguments
     if args.start_offset >= args.end_offset {
@@ -62,6 +71,6 @@ fn main() -> Result<()> {
         )?
     };
 
-    eprintln!("Total reads extracted: {}", read_count);
+    info!("Total reads extracted: {}", read_count);
     Ok(())
 }

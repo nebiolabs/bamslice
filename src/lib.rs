@@ -1,13 +1,12 @@
 use anyhow::{Context, Result};
+use log::{debug, info};
 use rust_htslib::bam::{self, Read, Reader};
+use std::fmt::Write as FmtWrite;
 use std::fs::File;
 use std::io::{Read as IoRead, Seek, SeekFrom, Write};
 
 // BGZF block magic bytes: gzip magic (0x1f 0x8b) + deflate method (0x08)
-const BGZF_MAGIC_BYTE1: u8 = 0x1f;
-const BGZF_MAGIC_BYTE2: u8 = 0x8b;
-const BGZF_MAGIC_BYTE3: u8 = 0x08;
-const BGZF_HEADER_MIN_SIZE: usize = 18;
+const BGZF_MAGIC: &[u8; 3] = &[0x1f, 0x8b, 0x08];
 
 // FASTQ quality score encoding (Phred+33)
 const PHRED_OFFSET: u8 = 33;
@@ -23,12 +22,10 @@ pub fn find_next_bgzf_block(file_path: &str, approximate_offset: u64) -> Result<
 
     file.seek(SeekFrom::Start(approximate_offset))?;
 
-    // Read chunks and scan for BGZF magic, with overlap to handle headers spanning chunks
+    // Read chunks and scan for BGZF magic bytes
     let mut buffer = vec![0u8; 8192];
-    let mut overlap = vec![0u8; BGZF_HEADER_MIN_SIZE];
-    let mut overlap_len = 0;
     let mut bytes_scanned = 0u64;
-    const MAX_SCAN: usize = 65536; // Don't scan more than one max block size
+    const MAX_SCAN: usize = 65536; // Don't scan more than one max BGZF block size
 
     loop {
         let n = file.read(&mut buffer)?;
@@ -36,44 +33,16 @@ pub fn find_next_bgzf_block(file_path: &str, approximate_offset: u64) -> Result<
             anyhow::bail!("Reached EOF without finding BGZF block");
         }
 
-        // Prepare search buffer combining overlap from previous read and new data
-        let search_buf = if overlap_len > 0 {
-            let mut combined = Vec::with_capacity(overlap_len + n);
-            combined.extend_from_slice(&overlap[..overlap_len]);
-            combined.extend_from_slice(&buffer[..n]);
-            combined
-        } else {
-            buffer[..n].to_vec()
-        };
-
-        // Calculate the file offset where our search buffer starts
-        // If we have overlap, we're searching from (bytes_scanned - overlap_len) into the file
-        let search_buffer_file_offset = bytes_scanned.saturating_sub(overlap_len as u64);
-
-        // Look for BGZF magic in search buffer
-        let search_end = search_buf.len().saturating_sub(2); // Need at least 3 bytes for magic
-        for i in 0..=search_end {
-            if search_buf[i] == BGZF_MAGIC_BYTE1
-                && i + 1 < search_buf.len()
-                && search_buf[i + 1] == BGZF_MAGIC_BYTE2
-                && i + 2 < search_buf.len()
-                && search_buf[i + 2] == BGZF_MAGIC_BYTE3
-            {
-                // Found magic at position i in search_buf
-                // Absolute file offset = approximate_offset + where search_buf starts + position in buffer
-                let block_offset = approximate_offset + search_buffer_file_offset + i as u64;
-                eprintln!("Found BGZF block at offset {}", block_offset);
-                return Ok(block_offset);
+        // Look for BGZF magic bytes (need at least 3 bytes)
+        if n >= 3 {
+            for i in 0..=(n - 3) {
+                if &buffer[i..i + 3] == BGZF_MAGIC.as_slice() {
+                    // Found BGZF block start at position i in buffer
+                    let block_offset = approximate_offset + bytes_scanned + i as u64;
+                    debug!("Found BGZF block at offset {}", block_offset);
+                    return Ok(block_offset);
+                }
             }
-        }
-
-        // Save last BGZF_HEADER_MIN_SIZE bytes as overlap for next iteration
-        if n >= BGZF_HEADER_MIN_SIZE {
-            overlap[..BGZF_HEADER_MIN_SIZE].copy_from_slice(&buffer[n - BGZF_HEADER_MIN_SIZE..n]);
-            overlap_len = BGZF_HEADER_MIN_SIZE;
-        } else {
-            overlap[..n].copy_from_slice(&buffer[..n]);
-            overlap_len = n;
         }
 
         bytes_scanned += n as u64;
@@ -93,31 +62,40 @@ pub fn read_to_fastq(record: &bam::Record) -> String {
     let seq = record.seq();
     let qual = record.qual();
 
-    // Pre-allocate with estimated capacity: @name\nseq\n+\nqual\n
-    let mut fastq = String::with_capacity(name.len() + seq.len() * 2 + qual.len() + 4);
+    // Pre-allocate with estimated capacity: @name/1\nseq\n+\nqual\n (extra 2 for /1 or /2)
+    let mut fastq = String::with_capacity(name.len() + seq.len() * 2 + qual.len() + 6);
 
     fastq.push('@');
     fastq.push_str(name);
+
+    // Determine read number and add /1 or /2 suffix for paired reads
+    let read_num = if record.is_paired() && record.is_last_in_template() {
+        fastq.push_str("/2");
+        2
+    } else {
+        fastq.push_str("/1");
+        1
+    };
+
+    // Add barcode information if present (BC tag in Illumina format: read:filtered:control:barcode)
+    if let Ok(bam::record::Aux::String(barcode_str)) = record.aux(b"BC") {
+        let filter_flag = if record.is_quality_check_failed() {
+            'Y'
+        } else {
+            'N'
+        };
+        write!(fastq, " {}:{}:0:{}", read_num, filter_flag, barcode_str).unwrap();
+    }
+
     fastq.push('\n');
 
-    // Sequence
-    for i in 0..seq.len() {
-        fastq.push(match seq[i] {
-            1 => 'A',
-            2 => 'C',
-            4 => 'G',
-            8 => 'T',
-            15 => 'N',
-            _ => 'N',
-        });
-    }
+    // Sequence - use as_bytes() to get properly decoded sequence
+    fastq.extend(seq.as_bytes().iter().map(|&b| b as char));
     fastq.push('\n');
     fastq.push_str("+\n");
 
     // Quality scores
-    for &q in qual {
-        fastq.push((q + PHRED_OFFSET) as char);
-    }
+    fastq.extend(qual.iter().map(|&q| (q + PHRED_OFFSET) as char));
     fastq.push('\n');
 
     fastq
@@ -134,7 +112,7 @@ pub fn process_blocks(
     // Find the actual block start from the approximate offset
     let aligned_start = find_next_bgzf_block(input_path, start_offset)?;
 
-    eprintln!(
+    info!(
         "Processing byte range: {} to {} (aligned to block at {})",
         start_offset, end_offset, aligned_start
     );
@@ -171,12 +149,12 @@ pub fn process_blocks(
         if current_block_offset != last_block_offset {
             blocks_processed += 1;
             last_block_offset = current_block_offset;
-            eprintln!("  Processing block at offset {}...", current_block_offset);
+            debug!("Processing block at offset {}", current_block_offset);
         }
 
         // Stop if we've reached a block at or past the end offset
         if current_block_offset >= end_offset {
-            eprintln!("Reached end offset at block {}", current_block_offset);
+            debug!("Reached end offset at block {}", current_block_offset);
             break;
         }
 
@@ -189,7 +167,7 @@ pub fn process_blocks(
                 // This can happen when end_offset extends to the file size
                 let err_msg = format!("{}", e);
                 if err_msg.contains("invalid record") || err_msg.contains("EOF") {
-                    eprintln!("Reached end of valid BAM records");
+                    debug!("Reached end of valid BAM records");
                     break;
                 }
                 return Err(e.into());
@@ -205,15 +183,13 @@ pub fn process_blocks(
         read_count += 1;
 
         if read_count % 100000 == 0 {
-            eprintln!("  Processed {} reads...", read_count);
+            info!("Processed {} reads...", read_count);
         }
     }
 
-    eprintln!(
-        "Processed {} blocks, {} reads",
+    info!(
+        "Completed: {} blocks, {} reads",
         blocks_processed, read_count
     );
-
-    eprintln!("Completed: {} reads processed", read_count);
     Ok(read_count)
 }

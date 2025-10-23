@@ -123,3 +123,33 @@ fn test_whole_file_processing() {
         fastq_reads, EXPECTED_READS
     );
 }
+
+#[test]
+fn test_first_read_content() {
+    let file_size = get_file_size(TEST_BAM);
+
+    // Process the entire file
+    let mut buffer = Vec::new();
+    bamslice::process_blocks(TEST_BAM, 0, file_size, None, &mut buffer).unwrap();
+
+    let content = String::from_utf8(buffer).unwrap();
+    let mut lines = content.lines();
+
+    // Expected first read (with barcode in Illumina format: read:filtered:control:barcode)
+    let expected_name = "@NS500355:NS500355:HHVN5AFX7:1:11101:11181:6634/1 1:N:0:CGTCAAGA-GGGTTGTT";
+    let expected_seq =
+        "AAATTTTAGAAAATTGTTATATTATTTGGGTTATTAGTGGAGATATTTGTTATAATTTTTTTTTAGGCGTAATTTG";
+    let expected_qual =
+        "AAAAAEEEEEEEEEEEEEEAEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE";
+
+    // Read first FASTQ record (4 lines)
+    let name = lines.next().expect("Missing read name line");
+    let seq = lines.next().expect("Missing sequence line");
+    let plus = lines.next().expect("Missing + line");
+    let qual = lines.next().expect("Missing quality line");
+
+    assert_eq!(name, expected_name, "First read name mismatch");
+    assert_eq!(seq, expected_seq, "First read sequence mismatch");
+    assert_eq!(plus, "+", "Expected + separator line");
+    assert_eq!(qual, expected_qual, "First read quality scores mismatch");
+}

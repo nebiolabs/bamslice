@@ -1,0 +1,104 @@
+name: Coverage
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry
+
+      - name: Cache coverage build
+        uses: actions/cache@v4
+        with:
+          path: target/
+          key: ${{ runner.os }}-coverage-target-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/*.rs') }}
+          restore-keys: |
+            ${{ runner.os }}-coverage-target-${{ hashFiles('**/Cargo.lock') }}
+            ${{ runner.os }}-coverage-target
+
+      - name: Cache grcov
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/grcov
+          key: ${{ runner.os }}-grcov-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install grcov
+        run: |
+          if ! command -v grcov &> /dev/null; then
+            cargo install grcov
+          fi
+
+      - name: Install lcov
+        run: rustup component add llvm-tools
+
+      - name: Run tests with coverage
+        env:
+          CARGO_INCREMENTAL: 0
+          RUSTFLAGS: "-Cinstrument-coverage"
+          LLVM_PROFILE_FILE: "target/coverage/${{ github.event.repository.name }}-%p-%m.profraw"
+          RUST_LOG: info
+        run: |
+          mkdir -p target/coverage
+          cargo test --all-features --workspace
+
+      - name: Generate HTML coverage report
+        run: grcov target/coverage/ --binary-path ./target/debug/deps/ -s . -t html --branch --ignore-not-existing --ignore '../*' --ignore "/*" --ignore "target/*" --ignore "tests/*" -o coverage/
+
+      - name: Generate text coverage summary
+        run: grcov target/coverage/ --binary-path ./target/debug/deps/ -s . -t markdown --branch --ignore-not-existing --ignore '../*' --ignore "/*" --ignore "target/*" --ignore "tests/*" -o coverage_summary.md
+
+      - name: Display coverage summary
+        run: cat coverage_summary.md
+
+      - name: Create job summary
+        run: |
+          echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
+          cat coverage_summary.md >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        run: |
+          gh pr comment ${{ github.event.number }} --body "$(cat coverage_summary.md)"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload HTML coverage report
+        id: upload-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/html/
+
+      - name: Add artifact download link to summary
+        run: |
+          # Use the artifact URL provided by the upload step
+          ARTIFACT_URL="${{ steps.upload-artifact.outputs.artifact-url }}"
+          echo "📊 **[Download HTML Coverage Report]($ARTIFACT_URL)**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "💡 **Tip:** Download the artifact, extract it, and open \`index.html\` in your browser for the full interactive coverage report." >> $GITHUB_STEP_SUMMARY
