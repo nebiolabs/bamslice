@@ -45,13 +45,12 @@ fn test_split_processing_produces_all_reads_no_dupes() {
 
     // Process first half in memory
     let mut chunk1_buffer = Vec::new();
-    let chunk1_reads =
-        bamslice::process_blocks(TEST_BAM, 0, half, None, &mut chunk1_buffer).unwrap();
+    let chunk1_reads = bamslice::process_blocks(TEST_BAM, 0, half, &mut chunk1_buffer).unwrap();
 
     // Process second half in memory
     let mut chunk2_buffer = Vec::new();
     let chunk2_reads =
-        bamslice::process_blocks(TEST_BAM, half, file_size, None, &mut chunk2_buffer).unwrap();
+        bamslice::process_blocks(TEST_BAM, half, file_size, &mut chunk2_buffer).unwrap();
 
     // Convert to strings
     let chunk1_content = String::from_utf8(chunk1_buffer).unwrap();
@@ -106,7 +105,7 @@ fn test_whole_file_processing() {
 
     // Test processing the entire file in one go, in memory
     let mut buffer = Vec::new();
-    let read_count = bamslice::process_blocks(TEST_BAM, 0, file_size, None, &mut buffer).unwrap();
+    let read_count = bamslice::process_blocks(TEST_BAM, 0, file_size, &mut buffer).unwrap();
 
     let content = String::from_utf8(buffer).unwrap();
     let fastq_reads = count_fastq_reads(&content);
@@ -130,7 +129,7 @@ fn test_first_read_content() {
 
     // Process the entire file
     let mut buffer = Vec::new();
-    bamslice::process_blocks(TEST_BAM, 0, file_size, None, &mut buffer).unwrap();
+    bamslice::process_blocks(TEST_BAM, 0, file_size, &mut buffer).unwrap();
 
     let content = String::from_utf8(buffer).unwrap();
     let mut lines = content.lines();

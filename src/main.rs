@@ -3,11 +3,11 @@ use bamslice::process_blocks;
 use clap::Parser;
 use log::info;
 
-/// Extract specific BGZF blocks from BAM/CRAM files and convert to interleaved FASTQ
+/// Extract specific BGZF blocks from BAM files and convert to interleaved FASTQ
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Input BAM or CRAM file
+    /// Input BAM file
     #[arg(short, long)]
     input: String,
 
@@ -18,10 +18,6 @@ struct Args {
     /// Ending byte offset (will process until reaching a block at or after this offset)
     #[arg(short = 'e', long)]
     end_offset: u64,
-
-    /// Reference file for CRAM (optional)
-    #[arg(short, long)]
-    reference: Option<String>,
 
     /// Output file (default: stdout)
     #[arg(short, long)]
@@ -52,23 +48,11 @@ fn main() -> Result<()> {
     let read_count = if let Some(output_path) = &args.output {
         let mut file = std::fs::File::create(output_path)
             .context(format!("Failed to create output file {}", output_path))?;
-        process_blocks(
-            &args.input,
-            args.start_offset,
-            args.end_offset,
-            args.reference.as_deref(),
-            &mut file,
-        )?
+        process_blocks(&args.input, args.start_offset, args.end_offset, &mut file)?
     } else {
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
-        process_blocks(
-            &args.input,
-            args.start_offset,
-            args.end_offset,
-            args.reference.as_deref(),
-            &mut handle,
-        )?
+        process_blocks(&args.input, args.start_offset, args.end_offset, &mut handle)?
     };
 
     info!("Total reads extracted: {}", read_count);

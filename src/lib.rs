@@ -106,7 +106,6 @@ pub fn process_blocks(
     input_path: &str,
     start_offset: u64,
     end_offset: u64,
-    reference: Option<&str>,
     output: &mut dyn Write,
 ) -> Result<usize> {
     // Find the actual block start from the approximate offset
@@ -117,15 +116,8 @@ pub fn process_blocks(
         start_offset, end_offset, aligned_start
     );
 
-    // Open BAM/CRAM file
-    let mut reader = Reader::from_path(input_path).context("Failed to open BAM/CRAM file")?;
-
-    // Set reference if provided (for CRAM files)
-    if let Some(ref_path) = reference {
-        reader
-            .set_reference(ref_path)
-            .context("Failed to set reference for CRAM")?;
-    }
+    // Open BAM file
+    let mut reader = Reader::from_path(input_path).context("Failed to open BAM file")?;
 
     // Seek to the aligned starting offset using virtual offset
     // Only seek if not starting from the beginning (offset 0 starts after header automatically)
