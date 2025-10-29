@@ -1,5 +1,7 @@
 # bamslice
 
+[![Crates.io](https://img.shields.io/crates/v/bamslice.svg)](https://crates.io/crates/bamslice)
+[![Documentation](https://docs.rs/bamslice/badge.svg)](https://docs.rs/bamslice)
 [![CI](https://github.com/nebiolabs/bamslice/workflows/CI/badge.svg)](https://github.com/nebiolabs/bamslice/actions/workflows/ci.yml)
 [![Coverage](https://github.com/nebiolabs/bamslice/workflows/Coverage/badge.svg)](https://github.com/nebiolabs/bamslice/actions/workflows/coverage.yml)
 [![Security Audit](https://github.com/nebiolabs/bamslice/workflows/Security%20audit/badge.svg)](https://github.com/nebiolabs/bamslice/actions/workflows/audit.yml)
