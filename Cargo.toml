@@ -1,7 +1,26 @@
 [package]
 name = "bamslice"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+authors = ["Bradley W. Langhorst <langhorst@neb.com>"]
+description = "Extract byte ranges from BAM files and convert to interleaved FASTQ format for parallel processing"
+license = "AGPL-3.0"
+repository = "https://github.com/nebiolabs/bamslice"
+readme = "README.md"
+keywords = ["bam", "fastq", "bioinformatics", "parallel", "genomics"]
+categories = ["command-line-utilities", "science"]
+
+[package.metadata.edam]
+topics = ["topic_0091", "topic_3168"] # Bioinformatics, Sequencing
+operations = [
+    "operation_3434", # Conversion
+    "operation_2409", # Data handling
+    "operation_3359", # Splitting
+]
+data_inputs = ["data_0863"] # Sequence alignment
+data_outputs = ["data_2044"] # Sequence
+formats_input = ["format_2572"] # BAM
+formats_output = ["format_1930"] # FASTQ
 
 [dependencies]
 rust-htslib = "0.51"
