@@ -47,7 +47,7 @@ fn main() -> Result<()> {
     // Process blocks and output FASTQ
     let read_count = if let Some(output_path) = &args.output {
         let mut file = std::fs::File::create(output_path)
-            .context(format!("Failed to create output file {}", output_path))?;
+            .with_context(|| format!("Failed to create output file {output_path}"))?;
         process_blocks(&args.input, args.start_offset, args.end_offset, &mut file)?
     } else {
         let stdout = std::io::stdout();
@@ -55,6 +55,6 @@ fn main() -> Result<()> {
         process_blocks(&args.input, args.start_offset, args.end_offset, &mut handle)?
     };
 
-    info!("Total reads extracted: {}", read_count);
+    info!("Total reads extracted: {read_count}");
     Ok(())
 }

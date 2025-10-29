@@ -33,15 +33,14 @@ fn test_split_processing_produces_all_reads_no_dupes() {
     // Check that test file exists
     assert!(
         std::path::Path::new(TEST_BAM).exists(),
-        "Test BAM file not found: {}",
-        TEST_BAM
+        "Test BAM file not found: {TEST_BAM}"
     );
 
     let file_size = get_file_size(TEST_BAM);
     let half = file_size / 2;
 
-    eprintln!("File size: {} bytes", file_size);
-    eprintln!("Split point: {} bytes", half);
+    eprintln!("File size: {file_size} bytes");
+    eprintln!("Split point: {half} bytes");
 
     // Process first half in memory
     let mut chunk1_buffer = Vec::new();
@@ -87,16 +86,15 @@ fn test_split_processing_produces_all_reads_no_dupes() {
     // Verify total matches expected from samtools
     assert_eq!(
         total_reads, EXPECTED_READS,
-        "Total read count mismatch: {} (ours) vs {} (expected from samtools)",
-        total_reads, EXPECTED_READS
+        "Total read count mismatch: {total_reads} (ours) vs {EXPECTED_READS} (expected from samtools)"
     );
 
     // Verify both chunks have reads (no empty split)
     assert!(chunk1_reads > 0, "Chunk 1 should have reads");
     assert!(chunk2_reads > 0, "Chunk 2 should have reads");
 
-    println!("  Chunk 1: {} reads", chunk1_reads);
-    println!("  Chunk 2: {} reads", chunk2_reads);
+    println!("  Chunk 1: {chunk1_reads} reads");
+    println!("  Chunk 2: {chunk2_reads} reads");
 }
 
 #[test]
@@ -112,14 +110,12 @@ fn test_whole_file_processing() {
 
     assert_eq!(
         read_count, fastq_reads,
-        "Returned read count doesn't match FASTQ content {} vs {}",
-        read_count, fastq_reads
+        "Returned read count doesn't match FASTQ content {read_count} vs {fastq_reads}"
     );
 
     assert_eq!(
         fastq_reads, EXPECTED_READS,
-        "FASTQ record count mismatch: {} vs {}",
-        fastq_reads, EXPECTED_READS
+        "FASTQ record count mismatch: {fastq_reads} vs {EXPECTED_READS}"
     );
 }
 

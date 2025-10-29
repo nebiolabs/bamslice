@@ -22,6 +22,11 @@ data_outputs = ["data_2044"] # Sequence
 formats_input = ["format_2572"] # BAM
 formats_output = ["format_1930"] # FASTQ
 
+[lints.clippy]
+# Enable pedantic and nursery lints for higher code quality
+pedantic = { level = "warn" }
+nursery = { level = "warn" }
+
 [dependencies]
 rust-htslib = "0.51"
 clap = { version = "4.5", features = ["derive"] }

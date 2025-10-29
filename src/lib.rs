@@ -12,53 +12,58 @@ const BGZF_MAGIC: &[u8; 3] = &[0x1f, 0x8b, 0x08];
 const PHRED_OFFSET: u8 = 33;
 
 /// Find the next BGZF block at or after the given offset
+/// # Errors
+/// Returns an error if file operations fail or no BGZF block is found within a reasonable range
 pub fn find_next_bgzf_block(file_path: &str, approximate_offset: u64) -> Result<u64> {
-    let mut file = File::open(file_path)?;
+    const MAX_SCAN: usize = 65536; // Don't scan more than one max BGZF block size
+
+    let mut file =
+        File::open(file_path).with_context(|| format!("Failed to open BAM file: {file_path}"))?;
 
     // Special case: offset 0 is always the start
     if approximate_offset == 0 {
         return Ok(0);
     }
 
-    file.seek(SeekFrom::Start(approximate_offset))?;
+    file.seek(SeekFrom::Start(approximate_offset))
+        .with_context(|| format!("Failed to seek to offset {approximate_offset}"))?;
 
     // Read chunks and scan for BGZF magic bytes
     let mut buffer = vec![0u8; 8192];
     let mut bytes_scanned = 0u64;
-    const MAX_SCAN: usize = 65536; // Don't scan more than one max BGZF block size
 
     loop {
-        let n = file.read(&mut buffer)?;
-        if n == 0 {
+        let bytes_read = file
+            .read(&mut buffer)
+            .context("Failed to read from BAM file while scanning for BGZF block")?;
+        if bytes_read == 0 {
             anyhow::bail!("Reached EOF without finding BGZF block");
         }
 
         // Look for BGZF magic bytes (need at least 3 bytes)
-        if n >= 3 {
-            for i in 0..=(n - 3) {
+        if bytes_read >= 3 {
+            for i in 0..=(bytes_read - 3) {
                 if &buffer[i..i + 3] == BGZF_MAGIC.as_slice() {
-                    // Found BGZF block start at position i in buffer
                     let block_offset = approximate_offset + bytes_scanned + i as u64;
-                    debug!("Found BGZF block at offset {}", block_offset);
+                    debug!("Found BGZF block at offset {block_offset}");
                     return Ok(block_offset);
                 }
             }
         }
 
-        bytes_scanned += n as u64;
+        bytes_scanned += bytes_read as u64;
         if bytes_scanned > MAX_SCAN as u64 {
             anyhow::bail!(
-                "Could not find BGZF block within {} bytes of offset {}",
-                MAX_SCAN,
-                approximate_offset
+                "Could not find BGZF block within {MAX_SCAN} bytes of offset {approximate_offset}"
             );
         }
     }
 }
 
 /// Convert a read to FASTQ format (interleaved - same format as samtools fastq)
+#[must_use]
 pub fn read_to_fastq(record: &bam::Record) -> String {
-    let name = std::str::from_utf8(record.qname()).unwrap_or("unknown");
+    let name = std::str::from_utf8(record.qname()).unwrap_or("non_utf8_read_name");
     let seq = record.seq();
     let qual = record.qual();
 
@@ -84,7 +89,7 @@ pub fn read_to_fastq(record: &bam::Record) -> String {
         } else {
             'N'
         };
-        write!(fastq, " {}:{}:0:{}", read_num, filter_flag, barcode_str).unwrap();
+        write!(fastq, " {read_num}:{filter_flag}:0:{barcode_str}").unwrap();
     }
 
     fastq.push('\n');
@@ -102,6 +107,8 @@ pub fn read_to_fastq(record: &bam::Record) -> String {
 }
 
 /// Process blocks in the given byte range and output interleaved FASTQ
+/// # Errors
+/// Returns an error if file operations or BAM reading fails
 pub fn process_blocks(
     input_path: &str,
     start_offset: u64,
@@ -112,8 +119,7 @@ pub fn process_blocks(
     let aligned_start = find_next_bgzf_block(input_path, start_offset)?;
 
     info!(
-        "Processing byte range: {} to {} (aligned to block at {})",
-        start_offset, end_offset, aligned_start
+        "Processing byte range: {start_offset} to {end_offset} (aligned to block at {aligned_start})"
     );
 
     // Open BAM file
@@ -123,8 +129,11 @@ pub fn process_blocks(
     // Only seek if not starting from the beginning (offset 0 starts after header automatically)
     if aligned_start > 0 {
         let virtual_offset = aligned_start << 16; // https://samtools.github.io/hts-specs/SAMv1.pdf
+        let virtual_offset_i64: i64 = virtual_offset
+            .try_into()
+            .context("Virtual offset too large to fit in i64")?;
         reader
-            .seek(virtual_offset as i64)
+            .seek(virtual_offset_i64)
             .context("Failed to seek to start offset")?;
     }
 
@@ -135,18 +144,21 @@ pub fn process_blocks(
 
     loop {
         // Check current block position before reading
-        let current_block_offset = (reader.tell() as u64) >> 16;
+        let tell_result = reader.tell();
+        let current_block_offset = u64::try_from(tell_result)
+            .context("Invalid negative virtual offset from BAM reader")?
+            >> 16;
 
         // Track when we enter a new block
         if current_block_offset != last_block_offset {
             blocks_processed += 1;
             last_block_offset = current_block_offset;
-            debug!("Processing block at offset {}", current_block_offset);
+            debug!("Processing block at offset {current_block_offset}");
         }
 
         // Stop if we've reached a block at or past the end offset
         if current_block_offset >= end_offset {
-            debug!("Reached end offset at block {}", current_block_offset);
+            debug!("Reached end offset at block {current_block_offset}");
             break;
         }
 
@@ -155,14 +167,14 @@ pub fn process_blocks(
             Some(Ok(())) => {}
             None => break, // EOF
             Some(Err(e)) => {
-                // Check if we've hit the end of valid data (EOF marker or beyond)
-                // This can happen when end_offset extends to the file size
-                let err_msg = format!("{}", e);
-                if err_msg.contains("invalid record") || err_msg.contains("EOF") {
-                    debug!("Reached end of valid BAM records");
+                // If we're at or past the end offset, errors are expected
+                // (could be reading beyond the valid region or hitting EOF marker)
+                if current_block_offset >= end_offset {
+                    debug!("Reached end of processing region at block {current_block_offset}");
                     break;
                 }
-                return Err(e.into());
+                // Otherwise this is an unexpected error in the middle of processing
+                return Err(e).context("Failed to read BAM record");
             }
         }
 
@@ -174,14 +186,11 @@ pub fn process_blocks(
 
         read_count += 1;
 
-        if read_count % 100000 == 0 {
-            info!("Processed {} reads...", read_count);
+        if read_count % 100_000 == 0 {
+            info!("Processed {read_count} reads...");
         }
     }
 
-    info!(
-        "Completed: {} blocks, {} reads",
-        blocks_processed, read_count
-    );
+    info!("Completed: {blocks_processed} blocks, {read_count} reads");
     Ok(read_count)
 }
