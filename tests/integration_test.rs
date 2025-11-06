@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::fs;
 
 const TEST_BAM: &str = "tests/fixtures/emseq-test1.bam";
+const TEST_ONT_BAM: &str = "tests/fixtures/ont-test1.bam";
 const EXPECTED_READS: usize = 9534; // Pre-calculated: samtools fastq emseq-test1.bam | wc -l / 4
 
 fn count_fastq_reads(content: &str) -> usize {
@@ -147,4 +148,116 @@ fn test_first_read_content() {
     assert_eq!(seq, expected_seq, "First read sequence mismatch");
     assert_eq!(plus, "+", "Expected + separator line");
     assert_eq!(qual, expected_qual, "First read quality scores mismatch");
+}
+
+#[test]
+fn test_blocks_start_with_read1() {
+    let file_size = get_file_size(TEST_BAM);
+
+    // Test multiple split points to ensure blocks always start with read 1
+    let split_points = [
+        file_size / 4,
+        file_size / 3,
+        file_size / 2,
+        file_size * 2 / 3,
+        file_size * 3 / 4,
+    ];
+
+    for &split_point in &split_points {
+        let mut buffer = Vec::new();
+        bamslice::process_blocks(TEST_BAM, split_point, file_size, &mut buffer).unwrap();
+
+        let content = String::from_utf8(buffer).unwrap();
+        let mut lines = content.lines();
+
+        if let Some(first_line) = lines.next() {
+            // First line should be a read name starting with @
+            assert!(
+                first_line.starts_with('@'),
+                "First line should be read name at split {split_point}"
+            );
+
+            // Check if it's read 1 by looking for /1 suffix
+            assert!(
+                first_line.contains("/1 "),
+                "First read should be read 1 (have /1 suffix) at split {split_point}, got: {first_line}"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_interleaved_pairs_in_output() {
+    let file_size = get_file_size(TEST_BAM);
+    let half = file_size / 2;
+
+    // Process second half
+    let mut buffer = Vec::new();
+    bamslice::process_blocks(TEST_BAM, half, file_size, &mut buffer).unwrap();
+
+    let content = String::from_utf8(buffer).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+
+    // Check that reads alternate between /1 and /2
+    let mut expect_read1 = true;
+    for i in (0..lines.len()).step_by(4) {
+        if i >= lines.len() {
+            break;
+        }
+
+        let read_name = lines[i];
+        if expect_read1 {
+            assert!(
+                read_name.contains("/1 "),
+                "Expected read 1 at line {i}, got: {read_name}"
+            );
+        } else {
+            assert!(
+                read_name.contains("/2 "),
+                "Expected read 2 at line {i}, got: {read_name}"
+            );
+        }
+        expect_read1 = !expect_read1;
+    }
+}
+
+#[test]
+fn test_complete_pairs_at_boundaries() {
+    let file_size = get_file_size(TEST_BAM);
+    let split = file_size / 2;
+
+    // Process first chunk
+    let mut chunk1 = Vec::new();
+    let chunk1_count = bamslice::process_blocks(TEST_BAM, 0, split, &mut chunk1).unwrap();
+
+    // Process second chunk
+    let mut chunk2 = Vec::new();
+    let chunk2_count = bamslice::process_blocks(TEST_BAM, split, file_size, &mut chunk2).unwrap();
+
+    // Both chunks should have even number of reads (complete pairs)
+    assert_eq!(
+        chunk1_count % 2,
+        0,
+        "First chunk should have complete pairs (even count), got {chunk1_count}"
+    );
+    assert_eq!(
+        chunk2_count % 2,
+        0,
+        "Second chunk should have complete pairs (even count), got {chunk2_count}"
+    );
+}
+
+#[test]
+fn test_ont_reads() {
+    let split = 180;
+    // Process first chunk
+    let mut chunk1 = Vec::new();
+    let chunk1_count = bamslice::process_blocks(TEST_ONT_BAM, 0, split, &mut chunk1).unwrap();
+
+    // Process second chunk
+    let mut chunk2 = Vec::new();
+    let chunk2_count = bamslice::process_blocks(TEST_ONT_BAM, split, 1000000, &mut chunk2).unwrap();
+
+    assert_eq!(chunk1_count, 84);
+    assert_eq!(chunk2_count, 125 - 84);
 }

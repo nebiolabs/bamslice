@@ -60,6 +60,16 @@ pub fn find_next_bgzf_block(file_path: &str, approximate_offset: u64) -> Result<
     }
 }
 
+/// Check if a record is read 1 in a paired-end read
+#[must_use]
+pub fn is_read1(record: &bam::Record) -> bool {
+    if record.is_paired() {
+        record.is_first_in_template()
+    } else {
+        true // unpaired reads are treated as read 1
+    }
+}
+
 /// Convert a read to FASTQ format (interleaved - same format as samtools fastq)
 #[must_use]
 pub fn read_to_fastq(record: &bam::Record) -> String {
@@ -73,12 +83,16 @@ pub fn read_to_fastq(record: &bam::Record) -> String {
     fastq.push('@');
     fastq.push_str(name);
 
-    // Determine read number and add /1 or /2 suffix for paired reads
-    let read_num = if record.is_paired() && record.is_last_in_template() {
-        fastq.push_str("/2");
-        2
+    // Determine read number and add /1 or /2 suffix only for paired reads
+    let read_num = if record.is_paired() {
+        if record.is_last_in_template() {
+            fastq.push_str("/2");
+            2
+        } else {
+            fastq.push_str("/1");
+            1
+        }
     } else {
-        fastq.push_str("/1");
         1
     };
 
@@ -141,6 +155,8 @@ pub fn process_blocks(
     let mut record = bam::Record::new();
     let mut blocks_processed = 0;
     let mut last_block_offset = aligned_start;
+    let mut first_read_in_range = true;
+    let mut prev_was_read1 = false;
 
     loop {
         // Check current block position before reading
@@ -154,12 +170,6 @@ pub fn process_blocks(
             blocks_processed += 1;
             last_block_offset = current_block_offset;
             debug!("Processing block at offset {current_block_offset}");
-        }
-
-        // Stop if we've reached a block at or past the end offset
-        if current_block_offset >= end_offset {
-            debug!("Reached end offset at block {current_block_offset}");
-            break;
         }
 
         // Read next record
@@ -178,6 +188,33 @@ pub fn process_blocks(
             }
         }
 
+        let is_paired = record.is_paired();
+        let current_is_read1 = is_read1(&record);
+
+        // Skip the very first read if it's read 2 (to align on read 1)
+        // Only applies to paired-end reads
+        if first_read_in_range {
+            first_read_in_range = false;
+            if is_paired {
+                let current_is_read2 = !current_is_read1;
+                if current_is_read2 {
+                    debug!("Skipping first read (read 2) to align on read pairs");
+                    continue;
+                }
+            }
+        }
+
+        // Stop if we've reached a block at or past the end offset
+        // For paired reads: continue if last read was read 1 (need its mate)
+        // For unpaired reads: stop immediately at end offset
+        let past_end_offset = current_block_offset >= end_offset;
+        let need_mate_for_read1 = is_paired && prev_was_read1;
+
+        if past_end_offset && !need_mate_for_read1 {
+            debug!("Reached end offset at block {current_block_offset}");
+            break;
+        }
+
         // Write FASTQ record (interleaved format)
         let fastq = read_to_fastq(&record);
         output
@@ -185,6 +222,14 @@ pub fn process_blocks(
             .context("Failed to write FASTQ output")?;
 
         read_count += 1;
+        prev_was_read1 = current_is_read1;
+
+        // If we just wrote read 2 past the end offset, we're done
+        let current_is_read2 = !current_is_read1;
+        if past_end_offset && is_paired && current_is_read2 {
+            debug!("Wrote mate read 2 from block {current_block_offset}, stopping");
+            break;
+        }
 
         if read_count % 100_000 == 0 {
             info!("Processed {read_count} reads...");
@@ -193,4 +238,40 @@ pub fn process_blocks(
 
     info!("Completed: {blocks_processed} blocks, {read_count} reads");
     Ok(read_count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_read1_unpaired() {
+        let record = bam::Record::new();
+        // Unpaired reads should be treated as read 1
+        assert!(is_read1(&record), "Unpaired read should be read 1");
+    }
+
+    #[test]
+    fn test_is_read1_paired_first() {
+        let mut record = bam::Record::new();
+        // Simulate a paired read that is first in template
+        record.set_paired();
+        record.set_first_in_template();
+        assert!(
+            is_read1(&record),
+            "Paired read marked as first in template should be read 1"
+        );
+    }
+
+    #[test]
+    fn test_is_read1_paired_last() {
+        let mut record = bam::Record::new();
+        // Simulate a paired read that is last in template (read 2)
+        record.set_paired();
+        record.set_last_in_template();
+        assert!(
+            !is_read1(&record),
+            "Paired read marked as last in template should NOT be read 1"
+        );
+    }
 }
