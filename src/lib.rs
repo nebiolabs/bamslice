@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use log::{debug, info};
 use rust_htslib::bam::{self, Read, Reader};
-use std::fmt::Write as FmtWrite;
 use std::fs::File;
 use std::io::{Read as IoRead, Seek, SeekFrom, Write};
 
@@ -70,54 +69,60 @@ pub fn is_read1(record: &bam::Record) -> bool {
     }
 }
 
-/// Convert a read to FASTQ format (interleaved - same format as samtools fastq)
-#[must_use]
-pub fn read_to_fastq(record: &bam::Record) -> String {
+/// Write a read directly to output in FASTQ format (interleaved - same format as samtools fastq)
+/// This avoids allocating an intermediate String
+fn write_fastq_to(record: &bam::Record, output: &mut dyn Write) -> std::io::Result<()> {
     let name = std::str::from_utf8(record.qname()).unwrap_or("non_utf8_read_name");
     let seq = record.seq();
     let qual = record.qual();
 
-    // Pre-allocate with estimated capacity: @name/1\nseq\n+\nqual\n (extra 2 for /1 or /2)
-    let mut fastq = String::with_capacity(name.len() + seq.len() * 2 + qual.len() + 6);
-
-    fastq.push('@');
-    fastq.push_str(name);
+    // Write read name
+    output.write_all(b"@")?;
+    output.write_all(name.as_bytes())?;
 
     // Determine read number and add /1 or /2 suffix only for paired reads
-    let read_num = if record.is_paired() {
+    let is_paired = record.is_paired();
+    if is_paired {
         if record.is_last_in_template() {
-            fastq.push_str("/2");
-            2
+            output.write_all(b"/2")?;
         } else {
-            fastq.push_str("/1");
-            1
+            output.write_all(b"/1")?;
         }
-    } else {
-        1
-    };
+    }
 
     // Add barcode information if present (BC tag in Illumina format: read:filtered:control:barcode)
     if let Ok(bam::record::Aux::String(barcode_str)) = record.aux(b"BC") {
         let filter_flag = if record.is_quality_check_failed() {
-            'Y'
+            b'Y'
         } else {
-            'N'
+            b'N'
         };
-        write!(fastq, " {read_num}:{filter_flag}:0:{barcode_str}").unwrap();
+        if is_paired {
+            let read_num = if record.is_last_in_template() { 2 } else { 1 };
+            write!(
+                output,
+                " {}:{}:0:{}",
+                read_num, filter_flag as char, barcode_str
+            )?;
+        } else {
+            write!(output, " 0:{}:0:{}", filter_flag as char, barcode_str)?;
+        }
     }
 
-    fastq.push('\n');
+    output.write_all(b"\n")?;
 
-    // Sequence - use as_bytes() to get properly decoded sequence
-    fastq.extend(seq.as_bytes().iter().map(|&b| b as char));
-    fastq.push('\n');
-    fastq.push_str("+\n");
+    // Sequence
+    output.write_all(&seq.as_bytes())?;
+
+    output.write_all(b"\n+\n")?;
 
     // Quality scores
-    fastq.extend(qual.iter().map(|&q| (q + PHRED_OFFSET) as char));
-    fastq.push('\n');
+    for &q in qual {
+        output.write_all(&[q + PHRED_OFFSET])?;
+    }
+    output.write_all(b"\n")?;
 
-    fastq
+    Ok(())
 }
 
 /// Process blocks in the given byte range and output interleaved FASTQ
@@ -215,11 +220,8 @@ pub fn process_blocks(
             break;
         }
 
-        // Write FASTQ record (interleaved format)
-        let fastq = read_to_fastq(&record);
-        output
-            .write_all(fastq.as_bytes())
-            .context("Failed to write FASTQ output")?;
+        // Write FASTQ record (interleaved format) directly to output
+        write_fastq_to(&record, output).context("Failed to write FASTQ output")?;
 
         read_count += 1;
         prev_was_read1 = current_is_read1;
