@@ -256,7 +256,8 @@ fn test_ont_reads() {
 
     // Process second chunk
     let mut chunk2 = Vec::new();
-    let chunk2_count = bamslice::process_blocks(TEST_ONT_BAM, split, 1000000, &mut chunk2).unwrap();
+    let chunk2_count =
+        bamslice::process_blocks(TEST_ONT_BAM, split, 1_000_000, &mut chunk2).unwrap();
 
     assert_eq!(chunk1_count, 84);
     assert_eq!(chunk2_count, 125 - 84);
