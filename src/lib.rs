@@ -180,8 +180,8 @@ pub fn process_blocks(
 
         // Verify block by reading first record; retry once on failure
         let mut record = bam::Record::new();
-        if let Some(Err(_)) = reader.read(&mut record) {
-            debug!("Invalid block at {aligned_start}, trying next");
+        if let Some(Err(e)) = reader.read(&mut record) {
+            debug!("Invalid block at {aligned_start}: {e}, trying next");
             aligned_start = find_next_bgzf_block(input_path, aligned_start + 1)?;
             reader = Reader::from_path(input_path).context("Failed to reopen BAM file")?;
             let virtual_offset_i64 =
