@@ -268,8 +268,8 @@ fn test_skips_false_positive_gzip_magic() {
     // Offset 132321 contains bytes "1f 8b 08" which match gzip magic but is not a valid
     // BGZF block (4th byte is 0x40 not 0x04). This test verifies we correctly skip it
     // and find the next valid BGZF block.
-    let false_positive_offset = 132321;
-    let end_offset = 200000;
+    let false_positive_offset = 132_321;
+    let end_offset = 200_000;
 
     let mut buffer = Vec::new();
     let result = bamslice::process_blocks(TEST_BAM, false_positive_offset, end_offset, &mut buffer);
@@ -304,7 +304,6 @@ fn test_retry_on_invalid_bgzf_block() {
     let read_count = result.unwrap();
     assert!(
         read_count > 0,
-        "Should have extracted reads after retry, got {}",
-        read_count
+        "Should have extracted reads after retry, got {read_count}"
     );
 }
