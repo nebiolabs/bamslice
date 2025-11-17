@@ -262,3 +262,18 @@ fn test_ont_reads() {
     assert_eq!(chunk1_count, 84);
     assert_eq!(chunk2_count, 125 - 84);
 }
+
+#[test]
+fn test_partial_block_offset() {
+    let problematic_offset = 132321;
+    let end_offset = 200000;
+
+    let mut buffer = Vec::new();
+    let result = bamslice::process_blocks(TEST_BAM, problematic_offset, end_offset, &mut buffer);
+    assert!(
+        result.is_ok(),
+        "Processing from partial block offset {} should work, got error: {:?}",
+        problematic_offset,
+        result.err()
+    );
+}
