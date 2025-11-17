@@ -4,11 +4,43 @@ use rust_htslib::bam::{self, Read, Reader};
 use std::fs::File;
 use std::io::{Read as IoRead, Seek, SeekFrom, Write};
 
-// BGZF block magic bytes: gzip magic (0x1f 0x8b) + deflate method (0x08)
-const BGZF_MAGIC: &[u8; 3] = &[0x1f, 0x8b, 0x08];
+// BGZF block magic bytes: gzip magic (0x1f 0x8b) + deflate method (0x08) + extra field flag (0x04)
+const BGZF_MAGIC: &[u8; 4] = &[0x1f, 0x8b, 0x08, 0x04];
 
 // FASTQ quality score encoding (Phred+33)
 const PHRED_OFFSET: u8 = 33;
+
+/// Check if buffer at position i contains a valid BGZF block header.
+///
+/// BGZF header structure per [SAM spec section 4.1](https://samtools.github.io/hts-specs/SAMv1.pdf):
+/// - Bytes 0-3: gzip magic (1f 8b) + compression method (08) + flags (04)
+/// - Bytes 12-13: subfield identifier SI1='B' (0x42), SI2='C' (0x43)
+/// - Bytes 14-15: subfield length SLEN=2 (0x02, 0x00)
+///
+/// This checks 8 specific bytes (64 bits), giving a false positive rate of ~5e-11 per GB.
+/// A 3-byte gzip magic check (24 bits) would have ~60 false positives per GB.
+fn is_valid_bgzf_header(buffer: &[u8], i: usize) -> bool {
+    if i + 16 > buffer.len() {
+        return false;
+    }
+
+    // Check gzip magic + extra field flag
+    if &buffer[i..i + 4] != BGZF_MAGIC.as_slice() {
+        return false;
+    }
+
+    // Check BGZF subfield identifier 'BC' at bytes 12-13
+    if buffer[i + 12] != 0x42 || buffer[i + 13] != 0x43 {
+        return false;
+    }
+
+    // Check SLEN = 2 at bytes 14-15
+    if buffer[i + 14] != 0x02 || buffer[i + 15] != 0x00 {
+        return false;
+    }
+
+    true
+}
 
 /// Find the next BGZF block at or after the given offset
 /// # Errors
@@ -27,7 +59,7 @@ pub fn find_next_bgzf_block(file_path: &str, approximate_offset: u64) -> Result<
     file.seek(SeekFrom::Start(approximate_offset))
         .with_context(|| format!("Failed to seek to offset {approximate_offset}"))?;
 
-    // Read chunks and scan for BGZF magic bytes
+    // Read chunks and scan for BGZF block headers
     let mut buffer = vec![0u8; 8192];
     let mut bytes_scanned = 0u64;
 
@@ -39,10 +71,10 @@ pub fn find_next_bgzf_block(file_path: &str, approximate_offset: u64) -> Result<
             anyhow::bail!("Reached EOF without finding BGZF block");
         }
 
-        // Look for BGZF magic bytes (need at least 3 bytes)
-        if bytes_read >= 3 {
-            for i in 0..=(bytes_read - 3) {
-                if &buffer[i..i + 3] == BGZF_MAGIC.as_slice() {
+        // Look for valid BGZF block headers
+        if bytes_read >= 16 {
+            for i in 0..=(bytes_read - 16) {
+                if is_valid_bgzf_header(&buffer, i) {
                     let block_offset = approximate_offset + bytes_scanned + i as u64;
                     debug!("Found BGZF block at offset {block_offset}");
                     return Ok(block_offset);
@@ -135,26 +167,39 @@ pub fn process_blocks(
     output: &mut dyn Write,
 ) -> Result<usize> {
     // Find the actual block start from the approximate offset
-    let aligned_start = find_next_bgzf_block(input_path, start_offset)?;
+    // Single retry on failure reduces probability from ~5e-11/GB to ~1e-29/GB
+    let mut aligned_start = find_next_bgzf_block(input_path, start_offset)?;
+    let mut reader = Reader::from_path(input_path).context("Failed to open BAM file")?;
+
+    if aligned_start > 0 {
+        let virtual_offset_i64 =
+            i64::try_from(aligned_start << 16).context("Virtual offset too large")?;
+        reader
+            .seek(virtual_offset_i64)
+            .context("Failed to seek to start offset")?;
+
+        // Verify block by reading first record; retry once on failure
+        let mut record = bam::Record::new();
+        if let Some(Err(_)) = reader.read(&mut record) {
+            debug!("Invalid block at {aligned_start}, trying next");
+            aligned_start = find_next_bgzf_block(input_path, aligned_start + 1)?;
+            reader = Reader::from_path(input_path).context("Failed to reopen BAM file")?;
+            let virtual_offset_i64 =
+                i64::try_from(aligned_start << 16).context("Virtual offset too large")?;
+            reader
+                .seek(virtual_offset_i64)
+                .context("Failed to seek to start offset")?;
+        } else {
+            // Seek back to re-read the first record in main loop
+            reader
+                .seek(virtual_offset_i64)
+                .context("Failed to seek back")?;
+        }
+    }
 
     info!(
         "Processing byte range: {start_offset} to {end_offset} (aligned to block at {aligned_start})"
     );
-
-    // Open BAM file
-    let mut reader = Reader::from_path(input_path).context("Failed to open BAM file")?;
-
-    // Seek to the aligned starting offset using virtual offset
-    // Only seek if not starting from the beginning (offset 0 starts after header automatically)
-    if aligned_start > 0 {
-        let virtual_offset = aligned_start << 16; // https://samtools.github.io/hts-specs/SAMv1.pdf
-        let virtual_offset_i64: i64 = virtual_offset
-            .try_into()
-            .context("Virtual offset too large to fit in i64")?;
-        reader
-            .seek(virtual_offset_i64)
-            .context("Failed to seek to start offset")?;
-    }
 
     let mut read_count = 0;
     let mut record = bam::Record::new();

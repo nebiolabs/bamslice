@@ -264,16 +264,47 @@ fn test_ont_reads() {
 }
 
 #[test]
-fn test_partial_block_offset() {
-    let problematic_offset = 132321;
+fn test_skips_false_positive_gzip_magic() {
+    // Offset 132321 contains bytes "1f 8b 08" which match gzip magic but is not a valid
+    // BGZF block (4th byte is 0x40 not 0x04). This test verifies we correctly skip it
+    // and find the next valid BGZF block.
+    let false_positive_offset = 132321;
     let end_offset = 200000;
 
     let mut buffer = Vec::new();
-    let result = bamslice::process_blocks(TEST_BAM, problematic_offset, end_offset, &mut buffer);
+    let result = bamslice::process_blocks(TEST_BAM, false_positive_offset, end_offset, &mut buffer);
     assert!(
         result.is_ok(),
-        "Processing from partial block offset {} should work, got error: {:?}",
-        problematic_offset,
+        "Should skip false positive gzip magic at {} and find valid block, got error: {:?}",
+        false_positive_offset,
         result.err()
+    );
+}
+
+#[test]
+fn test_retry_on_invalid_bgzf_block() {
+    // Test file has a fake 8-byte BGZF header pattern at offset 1800 that passes
+    // our header check but fails when actually read. The retry logic should recover
+    // by finding the next valid block at 13977.
+    const TEST_FILE: &str = "tests/fixtures/false-positive-test.bam";
+
+    // Start searching from 1760, which will find the fake header at 1800 first
+    let start_offset = 1760;
+    let end_offset = 50000;
+
+    let mut buffer = Vec::new();
+    let result = bamslice::process_blocks(TEST_FILE, start_offset, end_offset, &mut buffer);
+
+    assert!(
+        result.is_ok(),
+        "Should recover via retry after false positive, got error: {:?}",
+        result.err()
+    );
+
+    let read_count = result.unwrap();
+    assert!(
+        read_count > 0,
+        "Should have extracted reads after retry, got {}",
+        read_count
     );
 }
