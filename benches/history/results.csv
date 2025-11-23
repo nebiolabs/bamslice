@@ -1,0 +1,4 @@
+timestamp,unix_time,commit,branch,benchmark,mean_ns,stddev_ns,throughput_mibs
+2025-11-23 13:56:55,1763924215,c9c1cd0,main,small_500kb,9234996,87465,51.63
+2025-11-23 13:56:55,1763924215,c9c1cd0,main,medium_1mb,18382604,132484,51.88
+2025-11-23 13:56:55,1763924215,c9c1cd0,main,large_5mb,92602500,2038350,51.49

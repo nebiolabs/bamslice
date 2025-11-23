@@ -34,3 +34,10 @@ anyhow = "1.0"
 log = "0.4"
 env_logger = "0.11"
 flate2 = "1.1.5"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "bamslice_bench"
+harness = false

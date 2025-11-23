@@ -1,0 +1,115 @@
+name: Benchmarks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-
+            ${{ runner.os }}-cargo-
+
+      - name: Run benchmarks
+        run: cargo bench --bench bamslice_bench -- --output-format bencher | tee benchmark_results.txt
+
+      - name: Update benchmark history
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+          UNIX_TIME=$(date +%s)
+          COMMIT=$(git rev-parse --short HEAD)
+          BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          HISTORY_DIR='benches/history'
+
+          mkdir -p "${HISTORY_DIR}"
+
+          # Create CSV if it doesn't exist
+          if [ ! -f "${HISTORY_DIR}/results.csv" ]; then
+            echo "timestamp,unix_time,commit,branch,benchmark,mean_ns,stddev_ns,throughput_mibs" > "${HISTORY_DIR}/results.csv"
+          fi
+
+          # Parse benchmark results and append to CSV
+          grep "^test process_blocks" benchmark_results.txt | while read -r line; do
+            BENCH_NAME=$(echo "$line" | awk '{print $2}' | sed 's|process_blocks/||')
+            MEAN_NS=$(echo "$line" | grep -o '[0-9]\+ ns/iter' | grep -o '[0-9]\+')
+            STDDEV_NS=$(echo "$line" | grep -o '+/- [0-9]\+' | grep -o '[0-9]\+')
+
+            case "$BENCH_NAME" in
+              small_500kb) BYTES=500000 ;;
+              medium_1mb) BYTES=1000000 ;;
+              large_5mb) BYTES=5000000 ;;
+              *) BYTES=0 ;;
+            esac
+
+            if [ "$MEAN_NS" -gt 0 ] && [ "$BYTES" -gt 0 ]; then
+              THROUGHPUT=$(awk "BEGIN {printf \"%.2f\", ($BYTES * 1000000000.0) / ($MEAN_NS * 1048576.0)}")
+            else
+              THROUGHPUT="0.00"
+            fi
+
+            echo "$TIMESTAMP,$UNIX_TIME,$COMMIT,$BRANCH,$BENCH_NAME,$MEAN_NS,$STDDEV_NS,$THROUGHPUT" >> "${HISTORY_DIR}/results.csv"
+          done
+
+          # Also update human-readable format
+          echo "" >> "${HISTORY_DIR}/results.txt"
+          echo "=== $TIMESTAMP | $COMMIT | $BRANCH ===" >> "${HISTORY_DIR}/results.txt"
+          grep "^test" benchmark_results.txt >> "${HISTORY_DIR}/results.txt" || true
+          echo "----------------------------------------" >> "${HISTORY_DIR}/results.txt"
+
+      - name: Commit benchmark history
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add benches/history/results.csv benches/history/results.txt
+          git diff --staged --quiet || git commit -m "📊 Update benchmark history [skip ci]"
+          git push
+
+      - name: Store benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            benchmark_results.txt
+            benches/history/results.csv
+            benches/history/results.txt
+            target/criterion/
+          retention-days: 30
+
+      - name: Comment benchmark results on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const results = fs.readFileSync('benchmark_results.txt', 'utf8');
+            const body = `## Benchmark Results\n\n\`\`\`\n${results}\n\`\`\`\n\nFull details available in the workflow artifacts.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
