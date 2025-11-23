@@ -290,7 +290,7 @@ fn test_dnbseq_seek_issue() {
 
     // Parameters from the failing command
     let start_offset = 1000;
-    let end_offset = 100000;
+    let end_offset = 100_000;
 
     let mut buffer = Vec::new();
     let result = bamslice::process_blocks(TEST_FILE, start_offset, end_offset, &mut buffer);

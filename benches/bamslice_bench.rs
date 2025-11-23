@@ -6,7 +6,7 @@ fn bench_process_blocks(c: &mut Criterion) {
     let test_file = "tests/fixtures/dnbseq-test1.bam";
 
     if !std::path::Path::new(test_file).exists() {
-        eprintln!("Skipping bench_process_blocks: {} not found", test_file);
+        eprintln!("Skipping bench_process_blocks: {test_file} not found");
         return;
     }
 
