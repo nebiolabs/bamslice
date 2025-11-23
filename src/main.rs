@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use bamslice::process_blocks;
 use clap::Parser;
 use log::info;
 
@@ -44,16 +43,19 @@ fn main() -> Result<()> {
         );
     }
 
-    // Process blocks and output FASTQ
-    let read_count = if let Some(output_path) = &args.output {
-        let mut file = std::fs::File::create(output_path)
+    // Uses Box<dyn Write> to handle both File and Stdout via dynamic dispatch.
+    // This simplifies the code compared to generics, at the cost of slight runtime overhead.
+    let mut writer: Box<dyn std::io::Write> = if let Some(output_path) = &args.output {
+        let file = std::fs::File::create(output_path)
             .with_context(|| format!("Failed to create output file {output_path}"))?;
-        process_blocks(&args.input, args.start_offset, args.end_offset, &mut file)?
+        Box::new(std::io::BufWriter::new(file))
     } else {
         let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        process_blocks(&args.input, args.start_offset, args.end_offset, &mut handle)?
+        Box::new(std::io::BufWriter::new(stdout.lock()))
     };
+
+    let read_count =
+        bamslice::process_blocks(&args.input, args.start_offset, args.end_offset, &mut writer)?;
 
     info!("Total reads extracted: {read_count}");
     Ok(())
