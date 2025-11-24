@@ -34,6 +34,29 @@ jobs:
       - name: Run benchmarks
         run: cargo bench --bench bamslice_bench -- --output-format bencher | tee benchmark_results.txt
 
+      - name: Generate throughput summary
+        run: |
+          echo "Benchmark Throughput Summary" > benchmark_summary.txt
+          echo "============================" >> benchmark_summary.txt
+          echo "" >> benchmark_summary.txt
+
+          grep "^test process_blocks" benchmark_results.txt | while read -r line; do
+            BENCH_NAME=$(echo "$line" | awk '{print $2}' | sed 's|process_blocks/||')
+            MEAN_NS=$(echo "$line" | grep -o '[0-9]\+ ns/iter' | grep -o '[0-9]\+')
+
+            case "$BENCH_NAME" in
+              small_500kb) BYTES=500000 ;;
+              medium_1mb) BYTES=1000000 ;;
+              large_5mb) BYTES=5000000 ;;
+              *) BYTES=0 ;;
+            esac
+
+            if [ "$MEAN_NS" -gt 0 ] && [ "$BYTES" -gt 0 ]; then
+              THROUGHPUT=$(awk "BEGIN {printf \"%.2f\", ($BYTES * 1000000000.0) / ($MEAN_NS * 1048576.0)}")
+              echo "$BENCH_NAME: $THROUGHPUT MiB/s ($MEAN_NS ns/iter)" >> benchmark_summary.txt
+            fi
+          done
+
       - name: Update benchmark history
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
@@ -70,6 +93,7 @@ jobs:
             fi
 
             echo "$TIMESTAMP,$UNIX_TIME,$COMMIT,$BRANCH,$BENCH_NAME,$MEAN_NS,$STDDEV_NS,$THROUGHPUT" >> "${HISTORY_DIR}/results.csv"
+            echo "$BENCH_NAME: $THROUGHPUT MiB/s ($MEAN_NS ns/iter)" >> benchmark_summary.txt
           done
 
           # Also update human-readable format
@@ -104,8 +128,8 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const results = fs.readFileSync('benchmark_results.txt', 'utf8');
-            const body = `## Benchmark Results\n\n\`\`\`\n${results}\n\`\`\`\n\nFull details available in the workflow artifacts.`;
+            const summary = fs.readFileSync('benchmark_summary.txt', 'utf8');
+            const body = `## Benchmark Results\n\n\`\`\`\n${summary}\n\`\`\`\n\nFull details available in the workflow artifacts.`;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
