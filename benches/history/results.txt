@@ -4,3 +4,9 @@ test process_blocks/small_500kb ... bench:     9234996 ns/iter (+/- 87465)
 test process_blocks/medium_1mb ... bench:    18382604 ns/iter (+/- 132484)
 test process_blocks/large_5mb ... bench:    92602500 ns/iter (+/- 2038350)
 ----------------------------------------
+
+=== 2025-11-24 00:46:23 | e1e33fc | main ===
+test process_blocks/small_500kb ... bench:    11410391 ns/iter (+/- 139167)
+test process_blocks/medium_1mb ... bench:    22869414 ns/iter (+/- 221125)
+test process_blocks/large_5mb ... bench:   115149326 ns/iter (+/- 1005271)
+----------------------------------------
