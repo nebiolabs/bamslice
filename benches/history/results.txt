@@ -76,3 +76,9 @@ test process_blocks/small_500kb ... bench:    15049697 ns/iter (+/- 50034)
 test process_blocks/medium_1mb ... bench:    29989265 ns/iter (+/- 326320)
 test process_blocks/large_5mb ... bench:   149466973 ns/iter (+/- 1675714)
 ----------------------------------------
+
+=== 2025-11-24 23:50:50 | b059357 | main ===
+test process_blocks/small_500kb ... bench:    12033011 ns/iter (+/- 55491)
+test process_blocks/medium_1mb ... bench:    24210838 ns/iter (+/- 173548)
+test process_blocks/large_5mb ... bench:   120905648 ns/iter (+/- 1841497)
+----------------------------------------
