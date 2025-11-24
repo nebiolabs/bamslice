@@ -1,3 +1,45 @@
+//! Extract byte ranges from BAM files and convert to interleaved FASTQ format.
+//!
+//! This library provides efficient extraction of specific byte ranges from BAM (Binary Alignment/Map)
+//! files and converts them to interleaved FASTQ format. This enables parallel processing of large
+//! BAM files by splitting them into chunks that can be processed independently.
+//!
+//! # Key Features
+//!
+//! - **Block-aligned extraction**: Automatically aligns to BGZF block boundaries for valid data
+//! - **Paired-read aware**: Ensures read pairs are kept together across chunk boundaries
+//! - **Interleaved FASTQ output**: Compatible with `samtools fastq` interleaved format
+//! - **Barcode support**: Preserves BC tags in FASTQ headers
+//!
+//! # Example
+//!
+//! ```no_run
+//! use std::io::stdout;
+//! use bamslice::process_blocks;
+//!
+//! # fn main() -> anyhow::Result<()> {
+//! let mut output = stdout();
+//! let read_count = process_blocks(
+//!     "input.bam",
+//!     0,           // start offset
+//!     1_000_000,   // end offset (1MB chunk)
+//!     &mut output
+//! )?;
+//! println!("Extracted {read_count} reads");
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # BGZF Block Format
+//!
+//! BAM files use BGZF (Blocked GNU Zip Format) compression. Each block is independently
+//! compressed, allowing random access. This library scans for valid BGZF block headers
+//! using an 8-byte signature and validates blocks by decompressing and checking for valid BAM records.
+//!
+//! # Implementation Notes
+//!
+//! - Read pairs are kept together by reading one extra record past the end boundary if needed
+
 use anyhow::{Context, Result};
 use log::{debug, info};
 use noodles::bam;
@@ -119,10 +161,19 @@ where
     }
 }
 
-/// Check if a record is read 1 in a paired-end read
+/// Check if a record is read 1 in a paired-end read.
+///
+/// For unpaired reads, always returns `true` (treated as read 1).
+/// For paired reads, returns `true` if the `FIRST_SEGMENT` flag is set.
+///
+/// # Arguments
+///
+/// * `record` - A BAM/SAM record implementing the `noodles::sam::alignment::Record` trait
+///
 /// # Errors
-/// Returns an error if the record flags cannot be parsed
-pub fn is_read1<R>(record: &R) -> std::io::Result<bool>
+///
+/// Returns an error if unable to parse the record flags
+fn is_read1<R>(record: &R) -> std::io::Result<bool>
 where
     R: noodles::sam::alignment::Record,
 {
@@ -134,7 +185,19 @@ where
     }
 }
 
-/// Write a read directly to output in FASTQ format (interleaved - same format as samtools fastq)
+/// Write a BAM record to output in FASTQ format.
+///
+/// Outputs interleaved FASTQ format compatible with `samtools fastq`:
+/// - Read name with `/1` or `/2` suffix for paired reads
+/// - Barcode information from BC tag appended to header if present
+/// - Quality scores in Phred+33 format
+///
+/// # FASTQ Header Format
+///
+/// Unpaired: `@READ_NAME [0:FILTER:0:BARCODE]`
+/// Paired: `@READ_NAME/[12] [12]:FILTER:0:BARCODE`
+///
+/// Where FILTER is 'Y' if QC failed, 'N' otherwise.
 fn write_fastq_to(record: &bam::Record, output: &mut dyn Write) -> std::io::Result<()> {
     // Read name
     let name = record
@@ -200,7 +263,19 @@ fn write_fastq_to(record: &bam::Record, output: &mut dyn Write) -> std::io::Resu
     Ok(())
 }
 
-/// Scan a BGZF block to find the offset of the first valid BAM record
+/// Scan a BGZF block to find the offset of the first valid BAM record.
+///
+/// Decompresses the block and scans byte-by-byte for a valid record header.
+/// Records can start at any offset within a decompressed block (no alignment guarantee).
+///
+/// # Returns
+///
+/// - `Ok(Some(offset))` - Offset within decompressed block where first valid record starts
+/// - `Ok(None)` - No valid record found in this block
+///
+/// # Errors
+///
+/// Returns an error if unable to seek to block start or decompress the block
 fn find_first_record_in_block<R>(reader: &mut R, block_start: u64) -> Result<Option<u64>>
 where
     R: Read + Seek,
@@ -227,7 +302,16 @@ where
     Ok(None)
 }
 
-/// Checks if a record is valid according to the (BAM spec)[<https://samtools.github.io/hts-specs/SAMv1.pdf>] (Section 4.2)
+/// Check if buffer contains a valid BAM record header.
+///
+/// Validates according to [BAM spec Section 4.2](https://samtools.github.io/hts-specs/SAMv1.pdf):
+/// - Block size is reasonable (32 to 100MB)
+/// - Reference ID >= -1
+/// - Position >= -1
+/// - Read name length >= 2
+/// - Read name is NUL-terminated
+/// - Sequence length >= 0
+/// - Header fields are self-consistent
 fn is_valid_record_start(buf: &[u8], len: usize) -> bool {
     if len < 36 {
         return false;
@@ -284,19 +368,26 @@ fn is_valid_record_start(buf: &[u8], len: usize) -> bool {
     true
 }
 
-/// Attempt to open a valid BGZF block at the given offset.
+/// Validate a BGZF block and find the first record within it.
 ///
-/// Returns `Ok(Some((reader, aligned_start)))` if successful.
-/// Returns `Ok(None)` if the block is invalid or no record found.
-/// # Errors
-/// Returns an error if unable to open the file or seek to the desired position
-/// Attempt to validate a BGZF block at the given offset and find the first record.
+/// Attempts to decompress the block at the given offset and locate the first
+/// valid BAM record. Returns a virtual position that can be used to seek to
+/// the record.
 ///
-/// Returns `Ok(Some(virtual_position))` if successful.
-/// Returns `Ok(None)` if the block is invalid or no record found.
+/// # Arguments
+///
+/// * `reader` - A seekable reader positioned in the BAM file
+/// * `aligned_start` - Byte offset of the BGZF block to validate
+///
+/// # Returns
+///
+/// - `Ok(Some(virtual_pos))` - Virtual position of first valid record (if found)
+/// - `Ok(None)` - Block is invalid or contains no valid records
+///
 /// # Errors
-/// Returns an error if unable to seek or read
-pub fn validate_block<R>(reader: &mut R, aligned_start: u64) -> Result<Option<u64>>
+///
+/// Returns an error if unable to seek or read from the file
+fn validate_block<R>(reader: &mut R, aligned_start: u64) -> Result<Option<u64>>
 where
     R: Read + Seek,
 {
@@ -315,17 +406,34 @@ where
     }
 }
 
-/// Reads records from a BAM file starting at a specific offset and writes tem to the output stream
+/// Read records from a BAM reader and write them as FASTQ.
+///
+/// Processes records starting from the current reader position until:
+/// - EOF is reached
+/// - A block at or past `end_offset` is encountered
+/// - An error occurs reading a record
+///
+/// # Paired-read handling
+///
+/// - Skips the first record if it's read 2 (to ensure pairs align)
+/// - Reads one extra record past the end boundary if needed to complete a pair
 ///
 /// # Arguments
-/// * `reader` - A mutable reference to a BAM reader
-/// * `start_aligned_offset` - The start offset of the aligned region
-/// * `end_offset` - The end offset of the aligned region
-/// * `output` - A mutable reference to a writeable stream
+///
+/// * `reader` - BAM reader positioned at the start of processing
+/// * `start_aligned_offset` - Starting block offset (for logging)
+/// * `end_offset` - Process blocks that beging before this offset
+/// * `output` - Output stream for FASTQ data
 ///
 /// # Returns
-/// * `Ok(usize)` - The number of records processed
-/// * `Err(anyhow::Error)` - An error if the reader fails to read a record
+///
+/// Number of reads (not pairs) written to output
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Unable to read a BAM record (except at end boundary)
+/// - Unable to write FASTQ output
 fn process_records<R>(
     reader: &mut bam::io::Reader<bgzf::io::Reader<R>>,
     start_aligned_offset: u64,
@@ -408,9 +516,30 @@ where
     Ok(read_count)
 }
 
-/// Process blocks in the given byte range and output interleaved FASTQ
+/// Process a byte range from a BAM file and output interleaved FASTQ.
+///
+/// This is the main entry point for the library. It extracts reads from the specified
+/// byte range, automatically aligning to BGZF block boundaries and ensuring read pairs
+/// are kept together.
+///
+/// # Arguments
+///
+/// * `input_path` - Path to the input BAM file
+/// * `start_offset` - Starting byte offset (will be aligned to next BGZF block)
+/// * `end_offset` - Ending byte offset (processing stops at or after this offset)
+/// * `output` - Output stream for interleaved FASTQ data
+///
+/// # Returns
+///
+/// Total number of reads (not pairs) written to the output
+///
 /// # Errors
-/// Returns an error if file operations or BAM reading fails
+///
+/// Returns an error if:
+/// - Unable to open the input file
+/// - No valid BGZF blocks found in the specified range
+/// - BAM file is corrupted or malformed
+/// - Unable to write to output stream
 pub fn process_blocks(
     input_path: &str,
     start_offset: u64,
