@@ -129,7 +129,7 @@ Release a new version:
 echo "update Cargo.toml with new version"
 git commit -m 'tag release vX.Y.Z'
 git tag vX.Y.Z
-git push --tags
+git push --follow-tags
 cargo release
 ```
 
