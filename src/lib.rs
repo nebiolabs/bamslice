@@ -43,18 +43,37 @@ fn is_valid_bgzf_header(buffer: &[u8], i: usize) -> bool {
     true
 }
 
-/// Find the next BGZF block at or after the given offset
+/// Find the next BGZF block at or after the given offset.
+///
+/// Scans forward from the approximate offset to find a valid BGZF block header.
+/// Special case: offset 0 is always valid and returned immediately.
+///
+/// # Arguments
+///
+/// * `reader` - A seekable reader positioned in the BAM file
+/// * `approximate_offset` - The byte offset to start searching from
+///
+/// # Returns
+///
+/// - `Ok(Some(offset))` - Found a valid BGZF block at this offset
+/// - `Ok(None)` - Reached EOF before finding a BGZF block (normal near end of file)
+///
 /// # Errors
-/// Returns an error if file operations fail or no BGZF block is found within a reasonable range
-pub fn find_next_bgzf_block<R>(reader: &mut R, approximate_offset: u64) -> Result<u64>
+///
+/// Returns an error if:
+/// - Unable to seek to the requested offset
+/// - Unable to read from the file
+/// - Scanned `MAX_SCAN` bytes without finding a block or EOF (corrupt data)
+fn find_next_bgzf_block<R>(reader: &mut R, approximate_offset: u64) -> Result<Option<u64>>
 where
     R: Read + Seek,
 {
-    const MAX_SCAN: usize = 65536; // Don't scan more than one max BGZF block size
+    // Maximum compressed BGZF block size per spec (64KB)
+    const MAX_SCAN: usize = 65536;
 
     // Special case: offset 0 is always the start
     if approximate_offset == 0 {
-        return Ok(0);
+        return Ok(Some(0));
     }
 
     reader
@@ -68,8 +87,14 @@ where
         let bytes_read = reader
             .read(&mut buffer)
             .context("Failed to read from BAM file while scanning for BGZF block")?;
+
         if bytes_read == 0 {
-            anyhow::bail!("Reached EOF without finding BGZF block");
+            // 0 bytes read = EOF - this is normal when scanning near the end of the file
+            debug!(
+                "Reached EOF at offset {} without finding BGZF block",
+                approximate_offset + bytes_scanned
+            );
+            return Ok(None);
         }
 
         // Look for valid BGZF block headers
@@ -78,15 +103,17 @@ where
                 let block_offset = approximate_offset + bytes_scanned + i as u64;
                 if is_valid_bgzf_header(&buffer, i) {
                     debug!("Found BGZF block signature at offset {block_offset}");
-                    return Ok(block_offset);
+                    return Ok(Some(block_offset));
                 }
             }
         }
 
         bytes_scanned += bytes_read as u64;
         if bytes_scanned > MAX_SCAN as u64 {
+            // Scanned MAX_SCAN bytes without finding a block OR EOF - this is an error
             anyhow::bail!(
-                "Could not find BGZF block within {MAX_SCAN} bytes of offset {approximate_offset}"
+                "Scanned {MAX_SCAN} bytes from offset {approximate_offset} without finding a BGZF block. \
+                This may indicate corrupt data or an invalid starting offset."
             );
         }
     }
@@ -315,7 +342,6 @@ where
     let mut first_read_in_range = true;
     let mut prev_was_read1 = false;
 
-    //
     loop {
         let virtual_pos = reader.get_ref().virtual_position();
         let current_block_offset = virtual_pos.compressed();
@@ -398,7 +424,11 @@ pub fn process_blocks(
     let mut total_reads = 0;
 
     loop {
-        let block_start = find_next_bgzf_block(&mut reader, current_offset)?;
+        let Some(block_start) = find_next_bgzf_block(&mut reader, current_offset)? else {
+            // EOF reached without finding a block
+            break;
+        };
+
         if block_start >= end_offset {
             break;
         }

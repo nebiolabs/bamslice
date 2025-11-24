@@ -307,3 +307,63 @@ fn test_dnbseq_seek_issue() {
         "Should have extracted reads, got {read_count}"
     );
 }
+
+#[test]
+fn test_process_near_eof() {
+    const TEST_FILE: &str = "tests/fixtures/dnbseq-test1.bam";
+
+    let mut output = Vec::new();
+
+    // Start scanning near the end of the file (file is ~13.6MB)
+    // This should still find the last block and extract remaining reads
+    let result = bamslice::process_blocks(TEST_FILE, 13_590_000, 13_700_000, &mut output);
+
+    assert!(result.is_ok(), "Should handle near-EOF offsets gracefully");
+    let read_count = result.unwrap();
+
+    // Should get the last 146 reads
+    assert_eq!(read_count, 146, "Should extract remaining reads near EOF");
+
+    // Verify we got the last read in the file
+    let output_str = String::from_utf8(output).unwrap();
+    assert!(
+        output_str.contains("V350145865L1C001R01500464560"),
+        "Should include the last read from the file"
+    );
+}
+
+#[test]
+fn test_window_after_last_block() {
+    const TEST_FILE: &str = "tests/fixtures/dnbseq-test1.bam";
+
+    let mut output = Vec::new();
+
+    // Start beyond all BGZF blocks. 13_598_802 finds 146 reads,so we start just after that
+    let result = bamslice::process_blocks(TEST_FILE, 13_598_803, u64::MAX, &mut output);
+
+    assert!(
+        result.is_ok(),
+        "Should not error when starting beyond last block"
+    );
+    let read_count = result.unwrap();
+
+    assert_eq!(read_count, 0, "Should return 0 reads when no blocks found");
+}
+
+#[test]
+fn test_window_after_end_of_file() {
+    const TEST_FILE: &str = "tests/fixtures/dnbseq-test1.bam";
+
+    let mut output = Vec::new();
+
+    // Start beyond all BGZF blocks. 13_598_802 finds 146 reads,so we start just after that
+    let result = bamslice::process_blocks(TEST_FILE, 18_000_000, u64::MAX, &mut output);
+
+    assert!(
+        result.is_ok(),
+        "Should not error when starting beyond last block"
+    );
+    let read_count = result.unwrap();
+
+    assert_eq!(read_count, 0, "Should return 0 reads when no blocks found");
+}
