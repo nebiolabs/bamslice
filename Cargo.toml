@@ -9,6 +9,17 @@ repository = "https://github.com/nebiolabs/bamslice"
 readme = "README.md"
 keywords = ["bam", "fastq", "bioinformatics", "parallel", "genomics"]
 categories = ["command-line-utilities", "science"]
+exclude = [
+    "tests/fixtures/*.bam",
+    "tests/fixtures/*.sam",
+    "tests/fixtures/*.fastq",
+    "tests/fixtures/*.fq",
+    ".github/",
+    "benches/",
+    "scripts",
+    "Makefile",
+    "flamegraph.svg",
+]
 
 [package.metadata.edam]
 topics = ["topic_0091", "topic_3168"] # Bioinformatics, Sequencing
