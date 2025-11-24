@@ -64,3 +64,9 @@ test process_blocks/small_500kb ... bench:    14409801 ns/iter (+/- 321196)
 test process_blocks/medium_1mb ... bench:    28710117 ns/iter (+/- 60507)
 test process_blocks/large_5mb ... bench:   143136396 ns/iter (+/- 1366977)
 ----------------------------------------
+
+=== 2025-11-24 02:05:33 | 80edd0b | main ===
+test process_blocks/small_500kb ... bench:    14381838 ns/iter (+/- 43644)
+test process_blocks/medium_1mb ... bench:    28651951 ns/iter (+/- 129053)
+test process_blocks/large_5mb ... bench:   142700215 ns/iter (+/- 1168960)
+----------------------------------------
