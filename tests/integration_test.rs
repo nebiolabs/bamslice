@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::fs;
 
-const TEST_BAM: &str = "tests/fixtures/emseq-test1.bam";
+const TEST_BAM: &str = "tests/fixtures/illumina-test1.bam";
 const TEST_ONT_BAM: &str = "tests/fixtures/ont-test1.bam";
 const EXPECTED_READS: usize = 9534; // Pre-calculated: samtools fastq emseq-test1.bam | wc -l / 4
 
@@ -282,28 +282,28 @@ fn test_skips_false_positive_gzip_magic() {
 }
 
 #[test]
-fn test_retry_on_invalid_bgzf_block() {
-    // Test file has a fake 8-byte BGZF header pattern at offset 1800 that passes
-    // our header check but fails when actually read. The retry logic should recover
-    // by finding the next valid block at 13977.
-    const TEST_FILE: &str = "tests/fixtures/false-positive-test.bam";
+fn test_dnbseq_seek_issue() {
+    // This test reproduces the issue where seeking to offset 1000 in dnbseq-test1.bam
+    // lands in the middle of a record or finds a false positive BGZF header,
+    // requiring robust retry logic to find the next valid block.
+    const TEST_FILE: &str = "tests/fixtures/dnbseq-test1.bam";
 
-    // Start searching from 1760, which will find the fake header at 1800 first
-    let start_offset = 1760;
-    let end_offset = 50000;
+    // Parameters from the failing command
+    let start_offset = 1000;
+    let end_offset = 100_000;
 
     let mut buffer = Vec::new();
     let result = bamslice::process_blocks(TEST_FILE, start_offset, end_offset, &mut buffer);
 
     assert!(
         result.is_ok(),
-        "Should recover via retry after false positive, got error: {:?}",
+        "Should successfully process blocks even with tricky seek, got error: {:?}",
         result.err()
     );
 
     let read_count = result.unwrap();
     assert!(
         read_count > 0,
-        "Should have extracted reads after retry, got {read_count}"
+        "Should have extracted reads, got {read_count}"
     );
 }

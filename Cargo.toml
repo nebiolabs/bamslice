@@ -28,8 +28,16 @@ pedantic = { level = "warn" }
 nursery = { level = "warn" }
 
 [dependencies]
-rust-htslib = "0.51"
+noodles = { version = "0.102.0", features = ["bam", "bgzf", "sam"] }
 clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
 log = "0.4"
 env_logger = "0.11"
+flate2 = "1.1.5"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "bamslice_bench"
+harness = false

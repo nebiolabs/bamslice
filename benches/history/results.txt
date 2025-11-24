@@ -1,0 +1,6 @@
+
+=== 2025-11-23 13:56:55 | c9c1cd0 | main ===
+test process_blocks/small_500kb ... bench:     9234996 ns/iter (+/- 87465)
+test process_blocks/medium_1mb ... bench:    18382604 ns/iter (+/- 132484)
+test process_blocks/large_5mb ... bench:    92602500 ns/iter (+/- 2038350)
+----------------------------------------
