@@ -99,18 +99,29 @@ Run the test suite to verify correctness:
 cargo test
 ```
 
+lint the codebase:
+
+```bash
+make lint
+```
+
 ## Development Commands
 
 Run a coverage analysis:
 
 ```bash
-bash ./coverage.sh && open target/coverage/html/index.html
+make coverage && open target/coverage/html/index.html
 ```
 
 Build a flamegraph for performance profiling:
 
 ```bash
-bash ./flamegraph.sh && open flamegraph.svg
+make flamegraph && open flamegraph.svg
+```
+
+Run the performance benchmark:
+```bash
+make bench && open target/criterion/report/index.html
 ```
 
 ## License
