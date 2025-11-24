@@ -124,6 +124,15 @@ Run the performance benchmark:
 make bench && open target/criterion/report/index.html
 ```
 
+Release a new version:
+```bash
+echo "update Cargo.toml with new version"
+git commit -m 'tag release vX.Y.Z'
+git tag vX.Y.Z
+git push --tags
+cargo release
+```
+
 ## License
 
 AGPLv3 - See LICENSE file for details
