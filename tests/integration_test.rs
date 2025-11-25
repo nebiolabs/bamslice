@@ -367,3 +367,67 @@ fn test_window_after_end_of_file() {
 
     assert_eq!(read_count, 0, "Should return 0 reads when no blocks found");
 }
+
+#[test]
+fn test_dnbseq_100_chunks_exactly_200k_reads() {
+    // This test confirms that processing dnbseq-test1.bam in 100000-byte chunks
+    // produces exactly 200,000 reads with the same read names as samtools
+    // Truth hash: samtools fastq dnbseq-test1.bam | awk 'NR % 4 == 1' | cut -d' ' -f1 | sed 's/^@//' | md5
+    const TEST_FILE: &str = "tests/fixtures/dnbseq-test1.bam";
+    const EXPECTED_READS: usize = 200_000;
+    const TRUTH_HASH: &str = "25fe990b5612285e8b0fa04e2bf0e612"; // MD5 hash from samtools
+    const CHUNK_SIZE: u64 = 100_000;
+
+    let file_size = get_file_size(TEST_FILE);
+
+    let mut total_reads = 0;
+    let mut hasher = md5::Context::new();
+    let mut chunk_num = 0;
+
+    let mut start = 0;
+    while start < file_size {
+        let end = (start + CHUNK_SIZE).min(file_size);
+
+        let mut buffer = Vec::new();
+        let chunk_reads = bamslice::process_blocks(TEST_FILE, start, end, &mut buffer)
+            .unwrap_or_else(|e| panic!("Failed to process chunk {chunk_num} ({start}-{end}): {e}"));
+
+        total_reads += chunk_reads;
+
+        // Hash read names from this chunk
+        let content = String::from_utf8(buffer).unwrap();
+        for (idx, line) in content.lines().enumerate() {
+            if idx % 4 == 0 && line.starts_with('@') {
+                let read_name = &line[1..];
+                let core_name = read_name.split_whitespace().next().unwrap_or(read_name);
+                hasher.consume(core_name.as_bytes());
+                hasher.consume(b"\n"); // Match the newline from awk output
+            }
+        }
+
+        chunk_num += 1;
+        if chunk_num % 10 == 0 {
+            println!("  Processed chunk {chunk_num}: {total_reads} reads so far");
+        }
+
+        start = end;
+    }
+
+    println!("  Processed {chunk_num} total chunks");
+
+    let result_hash = format!("{:x}", hasher.compute());
+
+    assert_eq!(
+        total_reads, EXPECTED_READS,
+        "Total reads from all chunks should be exactly 200,000, got {total_reads}"
+    );
+
+    assert_eq!(
+        result_hash, TRUTH_HASH,
+        "MD5 hash of read names doesn't match samtools output.\nGot:      {result_hash}\nExpected: {TRUTH_HASH}"
+    );
+
+    println!(
+        "  ✓ {chunk_num} chunks (100KB each) produced exactly {total_reads} reads with correct hash: {result_hash}"
+    );
+}
