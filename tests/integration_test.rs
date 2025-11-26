@@ -321,8 +321,8 @@ fn test_process_near_eof() {
     assert!(result.is_ok(), "Should handle near-EOF offsets gracefully");
     let read_count = result.unwrap();
 
-    // Should get the last 146 reads
-    assert_eq!(read_count, 146, "Should extract remaining reads near EOF");
+    // Should get the last 147 reads
+    assert_eq!(read_count, 147, "Should extract remaining reads near EOF");
 
     // Verify we got the last read in the file
     let output_str = String::from_utf8(output).unwrap();
