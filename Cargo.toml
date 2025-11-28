@@ -1,6 +1,6 @@
 [package]
 name = "bamslice"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 authors = ["Bradley W. Langhorst <langhorst@neb.com>"]
 description = "Extract byte ranges from BAM files and convert to interleaved FASTQ format for parallel processing"
