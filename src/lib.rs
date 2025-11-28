@@ -50,6 +50,9 @@ use std::io::{Read, Seek, SeekFrom, Write};
 // BGZF block magic bytes: gzip magic (0x1f 0x8b) + deflate method (0x08) + extra field flag (0x04)
 const BGZF_MAGIC: &[u8; 4] = &[0x1f, 0x8b, 0x08, 0x04];
 
+// Maximum compressed BGZF block size per spec (64KB)
+const BGZF_MAX_BLOCK_SIZE: usize = 65536;
+
 // FASTQ quality score encoding (Phred+33)
 const PHRED_OFFSET: u8 = 33;
 
@@ -94,6 +97,7 @@ fn is_valid_bgzf_header(buffer: &[u8], i: usize) -> bool {
 ///
 /// * `reader` - A seekable reader positioned in the BAM file
 /// * `approximate_offset` - The byte offset to start searching from
+/// * `buffer` - Scratch buffer to use for reading (should be at least `BGZF_MAX_BLOCK_SIZE` + 15 bytes)
 ///
 /// # Returns
 ///
@@ -106,13 +110,14 @@ fn is_valid_bgzf_header(buffer: &[u8], i: usize) -> bool {
 /// - Unable to seek to the requested offset
 /// - Unable to read from the file
 /// - Scanned `MAX_SCAN` bytes without finding a block or EOF (corrupt data)
-fn find_next_bgzf_block<R>(reader: &mut R, approximate_offset: u64) -> Result<Option<u64>>
+fn find_next_bgzf_block<R>(
+    reader: &mut R,
+    approximate_offset: u64,
+    buffer: &mut Vec<u8>,
+) -> Result<Option<u64>>
 where
     R: Read + Seek,
 {
-    // Maximum compressed BGZF block size per spec (64KB)
-    const MAX_SCAN: usize = 65536;
-
     if approximate_offset == 0 {
         return Ok(Some(0));
     }
@@ -121,12 +126,11 @@ where
         .seek(SeekFrom::Start(approximate_offset))
         .with_context(|| format!("Failed to seek to offset {approximate_offset}"))?;
 
-    // We read MAX_SCAN + 15 bytes to ensure that if a block starts at the very end
-    // of the MAX_SCAN window (e.g. offset 65535), we still have enough bytes (16)
-    // to validate the header.
-    // The first byte of the header is at MAX_SCAN-1, the last byte (16th) is at MAX_SCAN+14.
-    // So we need a buffer of size MAX_SCAN + 15.
-    let mut buffer = vec![0u8; MAX_SCAN + 15];
+    // Ensure buffer is large enough
+    let required_size = BGZF_MAX_BLOCK_SIZE + 15;
+    // Resize to exact required size (truncates if larger, extends with 0 if smaller)
+    buffer.resize(required_size, 0);
+
     let mut bytes_read = 0;
 
     while bytes_read < buffer.len() {
@@ -144,7 +148,7 @@ where
 
     // Scan for BGZF header
     for i in 0..bytes_read {
-        if is_valid_bgzf_header(&buffer, i) {
+        if is_valid_bgzf_header(buffer, i) {
             let block_offset = approximate_offset + i as u64;
             debug!("Found BGZF block signature at offset {block_offset}");
             return Ok(Some(block_offset));
@@ -159,30 +163,6 @@ where
     anyhow::bail!(
         "Scanned {bytes_read} bytes from offset {approximate_offset} without finding a BGZF block."
     );
-}
-
-/// Check if a record is read 1 in a paired-end read.
-///
-/// For unpaired reads, always returns `true` (treated as read 1).
-/// For paired reads, returns `true` if the `FIRST_SEGMENT` flag is set.
-///
-/// # Arguments
-///
-/// * `record` - A BAM/SAM record implementing the `noodles::sam::alignment::Record` trait
-///
-/// # Errors
-///
-/// Returns an error if unable to parse the record flags
-fn is_read1<R>(record: &R) -> std::io::Result<bool>
-where
-    R: noodles::sam::alignment::Record,
-{
-    let flags = record.flags()?;
-    if flags.is_segmented() {
-        Ok(flags.is_first_segment())
-    } else {
-        Ok(true) // unpaired reads are treated as read 1
-    }
 }
 
 /// Write a BAM record to output in FASTQ format.
@@ -263,45 +243,6 @@ fn write_fastq_to(record: &bam::Record, output: &mut dyn Write) -> std::io::Resu
     Ok(())
 }
 
-/// Scan a BGZF block to find the offset of the first valid BAM record.
-///
-/// Decompresses the block and scans byte-by-byte for a valid record header.
-/// Records can start at any offset within a decompressed block (no alignment guarantee).
-///
-/// # Returns
-///
-/// - `Ok(Some(offset))` - Offset within decompressed block where first valid record starts
-/// - `Ok(None)` - No valid record found in this block
-///
-/// # Errors
-///
-/// Returns an error if unable to seek to block start or decompress the block
-fn find_first_record_in_block<R>(reader: &mut R, block_start: u64) -> Result<Option<u64>>
-where
-    R: Read + Seek,
-{
-    reader.seek(SeekFrom::Start(block_start))?;
-    let mut reader = flate2::read::GzDecoder::new(reader);
-
-    // Read enough data to find a record. 64KB is typical max block size.
-    let mut buffer = vec![0u8; 65536];
-    let bytes_read = std::io::Read::read(&mut reader, &mut buffer)?;
-
-    if bytes_read < 36 {
-        return Ok(None);
-    }
-
-    // Try every byte offset
-    // We scan byte-by-byte because a BAM record can start at any offset within the decompressed block.
-    // There is no alignment guarantee for records within the block.
-    for i in 0..bytes_read - 36 {
-        if is_valid_record_start(&buffer[i..], bytes_read - i) {
-            return Ok(Some(i as u64));
-        }
-    }
-    Ok(None)
-}
-
 /// Check if buffer contains a valid BAM record header.
 ///
 /// Validates according to [BAM spec Section 4.2](https://samtools.github.io/hts-specs/SAMv1.pdf):
@@ -368,6 +309,50 @@ fn is_valid_record_start(buf: &[u8], len: usize) -> bool {
     true
 }
 
+/// Scan a BGZF block to find the offset of the first valid BAM record.
+///
+/// Decompresses the block and scans byte-by-byte for a valid record header.
+/// Records can start at any offset within a decompressed block (no alignment guarantee).
+///
+/// # Returns
+///
+/// - `Ok(Some(offset))` - Offset within decompressed block where first valid record starts
+/// - `Ok(None)` - No valid record found in this block
+///
+/// # Errors
+///
+/// Returns an error if unable to seek to block start or decompress the block
+fn find_first_record_in_block<R>(
+    reader: &mut R,
+    block_start: u64,
+    buffer: &mut Vec<u8>,
+) -> Result<Option<u64>>
+where
+    R: Read + Seek,
+{
+    reader.seek(SeekFrom::Start(block_start))?;
+    let mut reader = flate2::read::GzDecoder::new(reader);
+
+    // Read enough data to find a record. 64KB is typical max block size.
+    buffer.resize(BGZF_MAX_BLOCK_SIZE, 0);
+
+    let bytes_read = std::io::Read::read(&mut reader, buffer)?;
+
+    if bytes_read < 36 {
+        return Ok(None);
+    }
+
+    // Try every byte offset
+    // We scan byte-by-byte because a BAM record can start at any offset within the decompressed block.
+    // There is no alignment guarantee for records within the block.
+    for i in 0..bytes_read - 36 {
+        if is_valid_record_start(&buffer[i..], bytes_read - i) {
+            return Ok(Some(i as u64));
+        }
+    }
+    Ok(None)
+}
+
 /// Validate a BGZF block and find the first record within it.
 ///
 /// Attempts to decompress the block at the given offset and locate the first
@@ -378,6 +363,7 @@ fn is_valid_record_start(buf: &[u8], len: usize) -> bool {
 ///
 /// * `reader` - A seekable reader positioned in the BAM file
 /// * `aligned_start` - Byte offset of the BGZF block to validate
+/// * `buffer` - Scratch buffer for decompression
 ///
 /// # Returns
 ///
@@ -387,14 +373,18 @@ fn is_valid_record_start(buf: &[u8], len: usize) -> bool {
 /// # Errors
 ///
 /// Returns an error if unable to seek or read from the file
-fn validate_block<R>(reader: &mut R, aligned_start: u64) -> Result<Option<u64>>
+fn validate_block<R>(
+    reader: &mut R,
+    aligned_start: u64,
+    buffer: &mut Vec<u8>,
+) -> Result<Option<u64>>
 where
     R: Read + Seek,
 {
     reader.seek(SeekFrom::Start(aligned_start))?;
 
     // Try to find a record start within the decompressed block
-    match find_first_record_in_block(reader, aligned_start) {
+    match find_first_record_in_block(reader, aligned_start, buffer) {
         Ok(Some(offset)) => {
             let offset_u16 =
                 u16::try_from(offset).map_err(|e| anyhow::anyhow!("Invalid offset: {e}"))?;
@@ -427,7 +417,7 @@ where
 ///
 /// # Returns
 ///
-/// Number of reads (not pairs) written to output
+/// - `Number of reads (not pairs) written to output`
 ///
 /// # Errors
 ///
@@ -447,8 +437,7 @@ where
     let mut record = bam::Record::default();
     let mut blocks_processed = 0;
     let mut prev_block_offset = start_aligned_offset;
-    let mut first_read_in_range = true;
-    let mut prev_was_read1 = false;
+    let mut prev_was_read1: Option<bool> = None;
 
     loop {
         let virtual_pos = reader.get_ref().virtual_position();
@@ -481,30 +470,26 @@ where
 
         let flags = record.flags();
 
-        let is_paired = flags.is_segmented();
-        // is_read1 returns Result<bool>
-        let current_is_read1 = is_read1(&record)?;
+        let current_is_read1 = flags.is_first_segment();
 
         // Strict validation for collated reads
-        if is_paired {
-            if prev_was_read1 && current_is_read1 {
+        if flags.is_segmented() {
+            if prev_was_read1 == Some(true) && current_is_read1 {
                 anyhow::bail!(
                     "Found consecutive R1 reads ({}). Input BAM must be collated.",
                     String::from_utf8_lossy(record.name().unwrap_or_default().as_ref())
                 );
             }
-            if !prev_was_read1 && !current_is_read1 && !first_read_in_range {
+            if prev_was_read1 == Some(false) && !current_is_read1 {
                 anyhow::bail!(
                     "Found R2 read ({}) without preceding R1. Input BAM must be collated.",
                     String::from_utf8_lossy(record.name().unwrap_or_default().as_ref())
                 );
             }
-            prev_was_read1 = current_is_read1;
+            prev_was_read1 = Some(current_is_read1);
         } else {
-            prev_was_read1 = false;
+            prev_was_read1 = Some(false);
         }
-
-        first_read_in_range = false;
         write_fastq_to(&record, output).context("Failed to write FASTQ output")?;
 
         read_count += 1;
@@ -554,8 +539,13 @@ pub fn process_blocks(
     let mut current_offset = start_offset;
     let mut total_reads = 0;
 
+    // Allocate a single reusable buffer for block scanning and validation
+    // Needs to be large enough for find_next_bgzf_block (MAX + 15)
+    let mut buffer = vec![0u8; BGZF_MAX_BLOCK_SIZE + 15];
+
     loop {
-        let Some(block_start) = find_next_bgzf_block(&mut reader, current_offset)? else {
+        let Some(block_start) = find_next_bgzf_block(&mut reader, current_offset, &mut buffer)?
+        else {
             // EOF reached without finding a block
             break;
         };
@@ -565,7 +555,7 @@ pub fn process_blocks(
             break;
         }
 
-        if let Some(virtual_pos) = validate_block(&mut reader, block_start)? {
+        if let Some(virtual_pos) = validate_block(&mut reader, block_start, &mut buffer)? {
             let aligned_start = virtual_pos >> 16;
             info!(
                 "Processing byte range: {start_offset} to {end_offset} (aligned to block at {aligned_start})"
@@ -586,40 +576,4 @@ pub fn process_blocks(
         current_offset = block_start + 1;
     }
     Ok(total_reads)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use noodles::sam::alignment::RecordBuf;
-    use noodles::sam::alignment::record::Flags;
-
-    #[test]
-    fn test_is_read1_unpaired() {
-        let record = RecordBuf::default();
-        // Unpaired reads should be treated as read 1
-        assert!(is_read1(&record).unwrap(), "Unpaired read should be read 1");
-    }
-
-    #[test]
-    fn test_is_read1_paired_first() {
-        let flags = Flags::SEGMENTED | Flags::FIRST_SEGMENT;
-        let record = RecordBuf::builder().set_flags(flags).build();
-
-        assert!(
-            is_read1(&record).unwrap(),
-            "Paired read marked as first in template should be read 1"
-        );
-    }
-
-    #[test]
-    fn test_is_read1_paired_last() {
-        let flags = Flags::SEGMENTED | Flags::LAST_SEGMENT;
-        let record = RecordBuf::builder().set_flags(flags).build();
-
-        assert!(
-            !is_read1(&record).unwrap(),
-            "Paired read marked as last in template should NOT be read 1"
-        );
-    }
 }
