@@ -113,10 +113,10 @@ Run a coverage analysis:
 make coverage && open target/coverage/html/index.html
 ```
 
-Build a flamegraph for performance profiling:
+Profile the application with samply (requires `cargo install samply`):
 
 ```bash
-make flamegraph && open flamegraph.svg
+make perf
 ```
 
 Run the performance benchmark:
