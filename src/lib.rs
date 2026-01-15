@@ -448,12 +448,20 @@ where
             prev_block_offset = current_block_offset;
             // If this block starts at/after end_offset
             if current_block_offset >= end_offset {
-                debug!("Reached end of processing region at block {current_block_offset}");
-                break;
+                // Check if we just wrote a read1 that needs its mate
+                // If so, we must read one more record (the mate) before stopping
+                if prev_was_read1 == Some(true) {
+                    debug!(
+                        "Reached end_offset at block {current_block_offset}, but need to read mate for previous read1"
+                    );
+                    // Don't break yet - continue to read the mate
+                } else {
+                    debug!("Reached end of processing region at block {current_block_offset}");
+                    break;
+                }
+            } else {
+                debug!("Processing block at offset {current_block_offset}");
             }
-            debug!("Block {current_block_offset} starts before end_offset {end_offset}");
-
-            debug!("Processing block at offset {current_block_offset}");
         }
 
         match reader.read_record(&mut record) {
@@ -469,11 +477,19 @@ where
         }
 
         let flags = record.flags();
-
         let current_is_read1 = flags.is_first_segment();
 
-        // Strict validation for collated reads
+        // Make sure that both mates stay together
         if flags.is_segmented() {
+            // Skip orphaned read2 at the start of processing region
+            if read_count == 0 && !current_is_read1 {
+                debug!(
+                    "Skipping read2 at start of processing region, it was handled in the previous region"
+                );
+                continue;
+            }
+
+            // Strict validation for collated reads
             if prev_was_read1 == Some(true) && current_is_read1 {
                 anyhow::bail!(
                     "Found consecutive R1 reads ({}). Input BAM must be collated.",
@@ -496,6 +512,21 @@ where
 
         if read_count % 100_000 == 0 {
             info!("Processed {read_count} reads...");
+        }
+
+        // After writing a record, check if we're beyond end_offset and:
+        // - For paired reads: just completed a pair (wrote read2)
+        // - For single-end reads: just wrote a read (no pairing needed)
+        if current_block_offset >= end_offset {
+            let can_stop = if flags.is_segmented() {
+                !current_is_read1 // Stop after read2 (completed pair)
+            } else {
+                true // Stop after any single-end read
+            };
+            if can_stop {
+                debug!("Completed beyond end_offset, stopping");
+                break;
+            }
         }
     }
 

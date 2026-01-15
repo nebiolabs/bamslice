@@ -321,8 +321,16 @@ fn test_process_near_eof() {
     assert!(result.is_ok(), "Should handle near-EOF offsets gracefully");
     let read_count = result.unwrap();
 
-    // Should get the last 147 reads
-    assert_eq!(read_count, 147, "Should extract remaining reads near EOF");
+    // Should get 146 reads (73 complete pairs, skipping orphaned read2 at start)
+    assert_eq!(
+        read_count, 146,
+        "Should extract remaining reads near EOF (146 = 73 complete pairs, orphaned read2 at start is skipped)"
+    );
+    assert_eq!(
+        read_count % 2,
+        0,
+        "Read count should be even (complete pairs)"
+    );
 
     // Verify we got the last read in the file
     let output_str = String::from_utf8(output).unwrap();
@@ -421,4 +429,50 @@ fn test_dnbseq_small_chunks_find_all_reads() {
         result_hash, TRUTH_HASH,
         "MD5 hash of read names doesn't match samtools output.\nGot:      {result_hash}\nExpected: {TRUTH_HASH}"
     );
+}
+
+#[test]
+fn test_no_orphaned_reads_in_chunks() {
+    // This test specifically checks that every chunk has an even number of reads
+    // to ensure no read pairs are split across chunk boundaries.
+    const TEST_FILE: &str = "tests/fixtures/dnbseq-test1.bam";
+    const CHUNK_SIZE: u64 = 100_000;
+
+    let file_size = get_file_size(TEST_FILE);
+
+    let mut start = 0;
+    let mut chunk_num = 0;
+    while start < file_size {
+        let end = (start + CHUNK_SIZE).min(file_size);
+
+        let mut buffer = Vec::new();
+        let chunk_reads = bamslice::process_blocks(TEST_FILE, start, end, &mut buffer)
+            .unwrap_or_else(|e| panic!("Failed to process chunk {chunk_num} ({start}-{end}): {e}"));
+
+        // Check the first and last few reads in the buffer to see what we got
+        if chunk_reads % 2 != 0 {
+            let content = String::from_utf8_lossy(&buffer);
+            let lines: Vec<&str> = content.lines().collect();
+            eprintln!("\nChunk {chunk_num} ({start}-{end}) FIRST 4 reads:");
+            for i in 0..16.min(lines.len()) {
+                eprintln!("  {}", lines[i]);
+            }
+            eprintln!("\nChunk {chunk_num} ({start}-{end}) LAST 4 reads:");
+            for i in (0..16).rev() {
+                if i < lines.len() {
+                    eprintln!("  {}", lines[lines.len() - 1 - i]);
+                }
+            }
+        }
+
+        // Every chunk must have an even number of reads (complete pairs)
+        assert_eq!(
+            chunk_reads % 2,
+            0,
+            "Chunk {chunk_num} ({start}-{end}) has odd number of reads: {chunk_reads}. This indicates an orphaned read without its mate."
+        );
+
+        chunk_num += 1;
+        start = end;
+    }
 }
