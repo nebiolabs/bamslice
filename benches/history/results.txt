@@ -88,3 +88,9 @@ test process_blocks/small_500kb ... bench:    14567619 ns/iter (+/- 180107)
 test process_blocks/medium_1mb ... bench:    28979799 ns/iter (+/- 100303)
 test process_blocks/large_5mb ... bench:   144525218 ns/iter (+/- 1397192)
 ----------------------------------------
+
+=== 2026-01-15 03:43:47 | a48b4ff | main ===
+test process_blocks/small_500kb ... bench:  15,086,518 ns/iter (+/- 182,669)
+test process_blocks/medium_1mb ... bench:  30,101,886 ns/iter (+/- 357,924)
+test process_blocks/large_5mb ... bench: 149,937,564 ns/iter (+/- 1,880,733)
+----------------------------------------
