@@ -421,7 +421,7 @@ fn test_dnbseq_small_chunks_find_all_reads() {
         start = end;
     }
 
-    let result_hash = format!("{:x}", hasher.compute());
+    let result_hash = format!("{:x}", hasher.finalize());
 
     assert_eq!(total_reads, EXPECTED_READS);
 
@@ -450,12 +450,12 @@ fn test_no_orphaned_reads_in_chunks() {
             .unwrap_or_else(|e| panic!("Failed to process chunk {chunk_num} ({start}-{end}): {e}"));
 
         // Check the first and last few reads in the buffer to see what we got
-        if chunk_reads % 2 != 0 {
+        if !chunk_reads.is_multiple_of(2) {
             let content = String::from_utf8_lossy(&buffer);
             let lines: Vec<&str> = content.lines().collect();
             eprintln!("\nChunk {chunk_num} ({start}-{end}) FIRST 4 reads:");
-            for i in 0..16.min(lines.len()) {
-                eprintln!("  {}", lines[i]);
+            for line in lines.iter().take(16) {
+                eprintln!("  {line}");
             }
             eprintln!("\nChunk {chunk_num} ({start}-{end}) LAST 4 reads:");
             for i in (0..16).rev() {
