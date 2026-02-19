@@ -94,3 +94,9 @@ test process_blocks/small_500kb ... bench:  15,086,518 ns/iter (+/- 182,669)
 test process_blocks/medium_1mb ... bench:  30,101,886 ns/iter (+/- 357,924)
 test process_blocks/large_5mb ... bench: 149,937,564 ns/iter (+/- 1,880,733)
 ----------------------------------------
+
+=== 2026-02-19 22:30:55 | cedf8af | main ===
+test process_blocks/small_500kb ... bench:  14,662,961 ns/iter (+/- 181,163)
+test process_blocks/medium_1mb ... bench:  29,162,744 ns/iter (+/- 211,298)
+test process_blocks/large_5mb ... bench: 145,615,842 ns/iter (+/- 2,178,111)
+----------------------------------------
