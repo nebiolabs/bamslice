@@ -35,6 +35,7 @@ fn bench_process_blocks(c: &mut Criterion) {
                         black_box(start),
                         black_box(end),
                         &mut output,
+                        bamslice::OutputFormat::Fastq,
                     )
                 });
             },

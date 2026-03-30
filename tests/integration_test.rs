@@ -45,12 +45,12 @@ fn test_split_processing_produces_all_reads_no_dupes() {
 
     // Process first half in memory
     let mut chunk1_buffer = Vec::new();
-    let chunk1_reads = bamslice::process_blocks(TEST_BAM, 0, half, &mut chunk1_buffer).unwrap();
+    let chunk1_reads = bamslice::process_blocks(TEST_BAM, 0, half, &mut chunk1_buffer, bamslice::OutputFormat::Fastq).unwrap();
 
     // Process second half in memory
     let mut chunk2_buffer = Vec::new();
     let chunk2_reads =
-        bamslice::process_blocks(TEST_BAM, half, file_size, &mut chunk2_buffer).unwrap();
+        bamslice::process_blocks(TEST_BAM, half, file_size, &mut chunk2_buffer, bamslice::OutputFormat::Fastq).unwrap();
 
     // Convert to strings
     let chunk1_content = String::from_utf8(chunk1_buffer).unwrap();
@@ -104,14 +104,14 @@ fn test_whole_file_processing() {
 
     // Test processing the entire file in one go, in memory
     let mut buffer = Vec::new();
-    let read_count = bamslice::process_blocks(TEST_BAM, 0, file_size, &mut buffer).unwrap();
+    let total_reads = bamslice::process_blocks(TEST_BAM, 0, file_size, &mut buffer, bamslice::OutputFormat::Fastq).unwrap();
 
     let content = String::from_utf8(buffer).unwrap();
     let fastq_reads = count_fastq_reads(&content);
 
     assert_eq!(
-        read_count, fastq_reads,
-        "Returned read count doesn't match FASTQ content {read_count} vs {fastq_reads}"
+        total_reads, fastq_reads,
+        "Returned read count doesn't match FASTQ content {total_reads} vs {fastq_reads}"
     );
 
     assert_eq!(
@@ -126,7 +126,7 @@ fn test_first_read_content() {
 
     // Process the entire file
     let mut buffer = Vec::new();
-    bamslice::process_blocks(TEST_BAM, 0, file_size, &mut buffer).unwrap();
+    bamslice::process_blocks(TEST_BAM, 0, file_size, &mut buffer, bamslice::OutputFormat::Fastq).unwrap();
 
     let content = String::from_utf8(buffer).unwrap();
     let mut lines = content.lines();
@@ -165,7 +165,7 @@ fn test_blocks_start_with_read1() {
 
     for &split_point in &split_points {
         let mut buffer = Vec::new();
-        bamslice::process_blocks(TEST_BAM, split_point, file_size, &mut buffer).unwrap();
+        bamslice::process_blocks(TEST_BAM, split_point, file_size, &mut buffer, bamslice::OutputFormat::Fastq).unwrap();
 
         let content = String::from_utf8(buffer).unwrap();
         let mut lines = content.lines();
@@ -193,7 +193,7 @@ fn test_interleaved_pairs_in_output() {
 
     // Process second half
     let mut buffer = Vec::new();
-    bamslice::process_blocks(TEST_BAM, half, file_size, &mut buffer).unwrap();
+    bamslice::process_blocks(TEST_BAM, half, file_size, &mut buffer, bamslice::OutputFormat::Fastq).unwrap();
 
     let content = String::from_utf8(buffer).unwrap();
     let lines: Vec<&str> = content.lines().collect();
@@ -228,11 +228,11 @@ fn test_complete_pairs_at_boundaries() {
 
     // Process first chunk
     let mut chunk1 = Vec::new();
-    let chunk1_count = bamslice::process_blocks(TEST_BAM, 0, split, &mut chunk1).unwrap();
+    let chunk1_count = bamslice::process_blocks(TEST_BAM, 0, split, &mut chunk1, bamslice::OutputFormat::Fastq).unwrap();
 
     // Process second chunk
     let mut chunk2 = Vec::new();
-    let chunk2_count = bamslice::process_blocks(TEST_BAM, split, file_size, &mut chunk2).unwrap();
+    let chunk2_count = bamslice::process_blocks(TEST_BAM, split, file_size, &mut chunk2, bamslice::OutputFormat::Fastq).unwrap();
 
     // Both chunks should have even number of reads (complete pairs)
     assert_eq!(
@@ -252,12 +252,12 @@ fn test_ont_reads() {
     let split = 180;
     // Process first chunk
     let mut chunk1 = Vec::new();
-    let chunk1_count = bamslice::process_blocks(TEST_ONT_BAM, 0, split, &mut chunk1).unwrap();
+    let chunk1_count = bamslice::process_blocks(TEST_ONT_BAM, 0, split, &mut chunk1, bamslice::OutputFormat::Fastq).unwrap();
 
     // Process second chunk
     let mut chunk2 = Vec::new();
     let chunk2_count =
-        bamslice::process_blocks(TEST_ONT_BAM, split, 1_000_000, &mut chunk2).unwrap();
+        bamslice::process_blocks(TEST_ONT_BAM, split, 1_000_000, &mut chunk2, bamslice::OutputFormat::Fastq).unwrap();
 
     assert_eq!(chunk1_count, 84);
     assert_eq!(chunk2_count, 125 - 84);
@@ -272,7 +272,7 @@ fn test_skips_false_positive_gzip_magic() {
     let end_offset = 200_000;
 
     let mut buffer = Vec::new();
-    let result = bamslice::process_blocks(TEST_BAM, false_positive_offset, end_offset, &mut buffer);
+    let result = bamslice::process_blocks(TEST_BAM, false_positive_offset, end_offset, &mut buffer, bamslice::OutputFormat::Fastq);
     assert!(
         result.is_ok(),
         "Should skip false positive gzip magic at {} and find valid block, got error: {:?}",
@@ -293,7 +293,7 @@ fn test_dnbseq_seek_issue() {
     let end_offset = 100_000;
 
     let mut buffer = Vec::new();
-    let result = bamslice::process_blocks(TEST_FILE, start_offset, end_offset, &mut buffer);
+    let result = bamslice::process_blocks(TEST_FILE, start_offset, end_offset, &mut buffer, bamslice::OutputFormat::Fastq);
 
     assert!(
         result.is_ok(),
@@ -301,10 +301,10 @@ fn test_dnbseq_seek_issue() {
         result.err()
     );
 
-    let read_count = result.unwrap();
+    let total_reads = result.unwrap();
     assert!(
-        read_count > 0,
-        "Should have extracted reads, got {read_count}"
+        total_reads > 0,
+        "Should have extracted reads, got {total_reads}"
     );
 }
 
@@ -316,18 +316,18 @@ fn test_process_near_eof() {
 
     // Start scanning near the end of the file (file is ~13.6MB)
     // This should still find the last block and extract remaining reads
-    let result = bamslice::process_blocks(TEST_FILE, 13_590_000, 13_700_000, &mut output);
+    let result = bamslice::process_blocks(TEST_FILE, 13_590_000, 13_700_000, &mut output, bamslice::OutputFormat::Fastq);
 
     assert!(result.is_ok(), "Should handle near-EOF offsets gracefully");
-    let read_count = result.unwrap();
+    let total_reads = result.unwrap();
 
     // Should get 146 reads (73 complete pairs, skipping orphaned read2 at start)
     assert_eq!(
-        read_count, 146,
+        total_reads, 146,
         "Should extract remaining reads near EOF (146 = 73 complete pairs, orphaned read2 at start is skipped)"
     );
     assert_eq!(
-        read_count % 2,
+        total_reads % 2,
         0,
         "Read count should be even (complete pairs)"
     );
@@ -347,15 +347,15 @@ fn test_window_after_last_block() {
     let mut output = Vec::new();
 
     // Start beyond all BGZF blocks. 13_598_802 finds 146 reads,so we start just after that
-    let result = bamslice::process_blocks(TEST_FILE, 13_598_803, u64::MAX, &mut output);
+    let result = bamslice::process_blocks(TEST_FILE, 13_598_803, u64::MAX, &mut output, bamslice::OutputFormat::Fastq);
 
     assert!(
         result.is_ok(),
         "Should not error when starting beyond last block"
     );
-    let read_count = result.unwrap();
+    let total_reads = result.unwrap();
 
-    assert_eq!(read_count, 0, "Should return 0 reads when no blocks found");
+    assert_eq!(total_reads, 0, "Should return 0 reads when no blocks found");
 }
 
 #[test]
@@ -365,15 +365,15 @@ fn test_window_after_end_of_file() {
     let mut output = Vec::new();
 
     // Start beyond all BGZF blocks. 13_598_802 finds 146 reads,so we start just after that
-    let result = bamslice::process_blocks(TEST_FILE, 18_000_000, u64::MAX, &mut output);
+    let result = bamslice::process_blocks(TEST_FILE, 18_000_000, u64::MAX, &mut output, bamslice::OutputFormat::Fastq);
 
     assert!(
         result.is_ok(),
         "Should not error when starting beyond last block"
     );
-    let read_count = result.unwrap();
+    let total_reads = result.unwrap();
 
-    assert_eq!(read_count, 0, "Should return 0 reads when no blocks found");
+    assert_eq!(total_reads, 0, "Should return 0 reads when no blocks found");
 }
 
 #[test]
@@ -397,7 +397,7 @@ fn test_dnbseq_small_chunks_find_all_reads() {
         let end = (start + CHUNK_SIZE).min(file_size);
 
         let mut buffer = Vec::new();
-        let chunk_reads = bamslice::process_blocks(TEST_FILE, start, end, &mut buffer)
+        let chunk_reads = bamslice::process_blocks(TEST_FILE, start, end, &mut buffer, bamslice::OutputFormat::Fastq)
             .unwrap_or_else(|e| panic!("Failed to process chunk {chunk_num} ({start}-{end}): {e}"));
 
         total_reads += chunk_reads;
@@ -446,7 +446,7 @@ fn test_no_orphaned_reads_in_chunks() {
         let end = (start + CHUNK_SIZE).min(file_size);
 
         let mut buffer = Vec::new();
-        let chunk_reads = bamslice::process_blocks(TEST_FILE, start, end, &mut buffer)
+        let chunk_reads = bamslice::process_blocks(TEST_FILE, start, end, &mut buffer, bamslice::OutputFormat::Fastq)
             .unwrap_or_else(|e| panic!("Failed to process chunk {chunk_num} ({start}-{end}): {e}"));
 
         // Check the first and last few reads in the buffer to see what we got
@@ -475,4 +475,110 @@ fn test_no_orphaned_reads_in_chunks() {
         chunk_num += 1;
         start = end;
     }
+}
+
+// --- BAM output equivalence tests ---
+// These verify that BAM output contains exactly the same reads as FASTQ, in the same order.
+
+/// Extract ordered read names (with /1 /2 suffix) from BAM output bytes.
+fn extract_bam_read_names(bam_data: &[u8]) -> Vec<String> {
+    use noodles::bam;
+    use std::io::Cursor;
+
+    if bam_data.is_empty() {
+        return Vec::new();
+    }
+
+    let cursor = Cursor::new(bam_data);
+    let mut reader = bam::io::Reader::new(cursor);
+    let _header = reader.read_header().unwrap();
+    let mut record = bam::Record::default();
+    let mut names = Vec::new();
+    while reader.read_record(&mut record).unwrap() > 0 {
+        let name = record
+            .name()
+            .map(|n| String::from_utf8_lossy(n.as_ref()).to_string())
+            .unwrap_or_default();
+        let flags = record.flags();
+        let suffix = if flags.is_segmented() {
+            if flags.is_last_segment() { "/2" } else { "/1" }
+        } else {
+            ""
+        };
+        names.push(format!("{name}{suffix}"));
+    }
+    names
+}
+
+/// For a given byte range, FASTQ and BAM must produce exactly the same reads
+/// in the same order.
+fn assert_fastq_bam_equivalent(bam_path: &str, start: u64, end: u64) {
+    let mut fastq_buf = Vec::new();
+    bamslice::process_blocks(
+        bam_path, start, end, &mut fastq_buf, bamslice::OutputFormat::Fastq,
+    )
+    .unwrap();
+    let fastq_names: Vec<String> = String::from_utf8(fastq_buf)
+        .unwrap()
+        .lines()
+        .enumerate()
+        .filter_map(|(i, line)| {
+            if i % 4 == 0 && line.starts_with('@') {
+                Some(line[1..].split_whitespace().next().unwrap_or_else(|| &line[1..]).to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let mut bam_buf = Vec::new();
+    bamslice::process_blocks(
+        bam_path, start, end, &mut bam_buf, bamslice::OutputFormat::Bam,
+    )
+    .unwrap();
+    let bam_names = extract_bam_read_names(&bam_buf);
+
+    assert_eq!(
+        fastq_names.len(),
+        bam_names.len(),
+        "Read count mismatch for range {start}..{end}: FASTQ={} BAM={}",
+        fastq_names.len(),
+        bam_names.len()
+    );
+    for (i, (fq, bm)) in fastq_names.iter().zip(bam_names.iter()).enumerate() {
+        assert_eq!(
+            fq, bm,
+            "Read name mismatch at position {i} for range {start}..{end}: FASTQ={fq} BAM={bm}"
+        );
+    }
+}
+
+#[test]
+fn test_bam_fastq_equivalence_split() {
+    let file_size = get_file_size(TEST_BAM);
+    for &split in &[file_size / 4, file_size / 3, file_size / 2, file_size * 2 / 3] {
+        assert_fastq_bam_equivalent(TEST_BAM, 0, split);
+        assert_fastq_bam_equivalent(TEST_BAM, split, file_size);
+    }
+}
+
+#[test]
+fn test_bam_fastq_equivalence_small_chunks() {
+    const TEST_FILE: &str = "tests/fixtures/dnbseq-test1.bam";
+    const CHUNK_SIZE: u64 = 100_000;
+
+    let file_size = get_file_size(TEST_FILE);
+    let mut start = 0;
+    while start < file_size {
+        let end = (start + CHUNK_SIZE).min(file_size);
+        assert_fastq_bam_equivalent(TEST_FILE, start, end);
+        start = end;
+    }
+}
+
+#[test]
+fn test_bam_fastq_equivalence_ont() {
+    let split = 180;
+    assert_fastq_bam_equivalent(TEST_ONT_BAM, 0, split);
+    assert_fastq_bam_equivalent(TEST_ONT_BAM, split, 1_000_000);
 }

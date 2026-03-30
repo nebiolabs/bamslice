@@ -1,7 +1,7 @@
-//! Extract byte ranges from BAM files and convert to interleaved FASTQ format.
+//! Extract byte ranges from BAM files and output as interleaved FASTQ or BAM.
 //!
 //! This library provides efficient extraction of specific byte ranges from BAM (Binary Alignment/Map)
-//! files and converts them to interleaved FASTQ format. This enables parallel processing of large
+//! files and outputs them as interleaved FASTQ or BAM. This enables parallel processing of large
 //! BAM files by splitting them into chunks that can be processed independently.
 //!
 //! # Key Features
@@ -9,26 +9,8 @@
 //! - **Block-aligned extraction**: Automatically aligns to BGZF block boundaries for valid data
 //! - **Paired-read aware**: Ensures read pairs are kept together across chunk boundaries
 //! - **Interleaved FASTQ output**: Compatible with `samtools fastq` interleaved format
+//! - **BAM output**: Raw-copies middle BGZF blocks, only recompressing at slice boundaries
 //! - **Barcode support**: Preserves BC tags in FASTQ headers
-//!
-//! # Example
-//!
-//! ```no_run
-//! use std::io::stdout;
-//! use bamslice::process_blocks;
-//!
-//! # fn main() -> anyhow::Result<()> {
-//! let mut output = stdout();
-//! let read_count = process_blocks(
-//!     "input.bam",
-//!     0,           // start offset
-//!     1_000_000,   // end offset (1MB chunk)
-//!     &mut output
-//! )?;
-//! println!("Extracted {read_count} reads");
-//! # Ok(())
-//! # }
-//! ```
 //!
 //! # BGZF Block Format
 //!
@@ -44,8 +26,18 @@ use anyhow::{Context, Result};
 use log::{debug, info};
 use noodles::bam;
 use noodles::bgzf;
+use noodles::sam;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
+
+/// Output format for extracted reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutputFormat {
+    /// Interleaved FASTQ format (compatible with `samtools fastq`)
+    Fastq,
+    /// BAM format
+    Bam,
+}
 
 // BGZF block magic bytes: gzip magic (0x1f 0x8b) + deflate method (0x08) + extra field flag (0x04)
 const BGZF_MAGIC: &[u8; 4] = &[0x1f, 0x8b, 0x08, 0x04];
@@ -89,27 +81,7 @@ fn is_valid_bgzf_header(buffer: &[u8], i: usize) -> bool {
 }
 
 /// Find the next BGZF block at or after the given offset.
-///
-/// Scans forward from the approximate offset to find a valid BGZF block header.
-/// Special case: offset 0 is always valid and returned immediately.
-///
-/// # Arguments
-///
-/// * `reader` - A seekable reader positioned in the BAM file
-/// * `approximate_offset` - The byte offset to start searching from
-/// * `buffer` - Scratch buffer to use for reading (should be at least `BGZF_MAX_BLOCK_SIZE` + 15 bytes)
-///
-/// # Returns
-///
-/// - `Ok(Some(offset))` - Found a valid BGZF block at this offset
-/// - `Ok(None)` - Reached EOF before finding a BGZF block (normal near end of file)
-///
-/// # Errors
-///
-/// Returns an error if:
-/// - Unable to seek to the requested offset
-/// - Unable to read from the file
-/// - Scanned `MAX_SCAN` bytes without finding a block or EOF (corrupt data)
+/// Returns `None` if EOF is reached. Offset 0 is always valid.
 fn find_next_bgzf_block<R>(
     reader: &mut R,
     approximate_offset: u64,
@@ -165,19 +137,8 @@ where
     );
 }
 
-/// Write a BAM record to output in FASTQ format.
-///
-/// Outputs interleaved FASTQ format compatible with `samtools fastq`:
-/// - Read name with `/1` or `/2` suffix for paired reads
-/// - Barcode information from BC tag appended to header if present
-/// - Quality scores in Phred+33 format
-///
-/// # FASTQ Header Format
-///
-/// Unpaired: `@READ_NAME [0:FILTER:0:BARCODE]`
-/// Paired: `@READ_NAME/[12] [12]:FILTER:0:BARCODE`
-///
-/// Where FILTER is 'Y' if QC failed, 'N' otherwise.
+/// Write a BAM record as interleaved FASTQ (compatible with `samtools fastq`).
+/// Header: `@NAME/[12] [12]:FILTER:0:BARCODE` where FILTER is Y/N for QC fail.
 fn write_fastq_to(record: &bam::Record, output: &mut dyn Write) -> std::io::Result<()> {
     // Read name
     let name = record
@@ -243,16 +204,7 @@ fn write_fastq_to(record: &bam::Record, output: &mut dyn Write) -> std::io::Resu
     Ok(())
 }
 
-/// Check if buffer contains a valid BAM record header.
-///
-/// Validates according to [BAM spec Section 4.2](https://samtools.github.io/hts-specs/SAMv1.pdf):
-/// - Block size is reasonable (32 to 100MB)
-/// - Reference ID >= -1
-/// - Position >= -1
-/// - Read name length >= 2
-/// - Read name is NUL-terminated
-/// - Sequence length >= 0
-/// - Header fields are self-consistent
+/// Check if buffer contains a valid BAM record header per SAM spec Section 4.2.
 fn is_valid_record_start(buf: &[u8], len: usize) -> bool {
     if len < 36 {
         return false;
@@ -309,19 +261,8 @@ fn is_valid_record_start(buf: &[u8], len: usize) -> bool {
     true
 }
 
-/// Scan a BGZF block to find the offset of the first valid BAM record.
-///
-/// Decompresses the block and scans byte-by-byte for a valid record header.
-/// Records can start at any offset within a decompressed block (no alignment guarantee).
-///
-/// # Returns
-///
-/// - `Ok(Some(offset))` - Offset within decompressed block where first valid record starts
-/// - `Ok(None)` - No valid record found in this block
-///
-/// # Errors
-///
-/// Returns an error if unable to seek to block start or decompress the block
+/// Decompress a BGZF block and scan for the first valid BAM record header.
+/// Returns the byte offset within the decompressed block, or `None`.
 fn find_first_record_in_block<R>(
     reader: &mut R,
     block_start: u64,
@@ -353,26 +294,8 @@ where
     Ok(None)
 }
 
-/// Validate a BGZF block and find the first record within it.
-///
-/// Attempts to decompress the block at the given offset and locate the first
-/// valid BAM record. Returns a virtual position that can be used to seek to
-/// the record.
-///
-/// # Arguments
-///
-/// * `reader` - A seekable reader positioned in the BAM file
-/// * `aligned_start` - Byte offset of the BGZF block to validate
-/// * `buffer` - Scratch buffer for decompression
-///
-/// # Returns
-///
-/// - `Ok(Some(virtual_pos))` - Virtual position of first valid record (if found)
-/// - `Ok(None)` - Block is invalid or contains no valid records
-///
-/// # Errors
-///
-/// Returns an error if unable to seek or read from the file
+/// Validate a BGZF block by decompressing it and finding the first BAM record.
+/// Returns the virtual position of that record, or `None` if the block is invalid.
 fn validate_block<R>(
     reader: &mut R,
     aligned_start: u64,
@@ -396,42 +319,26 @@ where
     }
 }
 
-/// Read records from a BAM reader and write them as FASTQ.
+struct ProcessResult {
+    read_count: usize,
+    /// block offset where raw copying can start
+    clean_boundary_offset: Option<u64>,
+}
+
+/// Read records and write them using the provided write function.
 ///
-/// Processes records starting from the current reader position until:
-/// - EOF is reached
-/// - A block at or past `end_offset` is encountered
-/// - An error occurs reading a record
-///
-/// # Paired-read handling
-///
-/// - Skips the first record if it's read 2 (to ensure pairs align)
-/// - Reads one extra record past the end boundary if needed to complete a pair
-///
-/// # Arguments
-///
-/// * `reader` - BAM reader positioned at the start of processing
-/// * `start_aligned_offset` - Starting block offset (for logging)
-/// * `end_offset` - Process blocks that beging before this offset
-/// * `output` - Output stream for FASTQ data
-///
-/// # Returns
-///
-/// - `Number of reads (not pairs) written to output`
-///
-/// # Errors
-///
-/// Returns an error if:
-/// - Unable to read a BAM record (except at end boundary)
-/// - Unable to write FASTQ output
-fn process_records<R>(
+/// For BAM output, returns early at the first clean BGZF block boundary
+/// (record at decompressed offset 0, at a pair boundary) to enable raw block copy.
+fn process_records<R, F>(
     reader: &mut bam::io::Reader<bgzf::io::Reader<R>>,
     start_aligned_offset: u64,
     end_offset: u64,
-    output: &mut dyn Write,
-) -> Result<usize>
+    write_record: &mut F,
+    format: OutputFormat,
+) -> Result<ProcessResult>
 where
     R: Read + Seek,
+    F: FnMut(&bam::Record) -> std::io::Result<()>,
 {
     let mut read_count = 0;
     let mut record = bam::Record::default();
@@ -445,6 +352,26 @@ where
 
         if current_block_offset != prev_block_offset {
             blocks_processed += 1;
+
+            // For BAM output: check for clean boundary before consuming data from the new block.
+            // A clean boundary means the next record starts at byte 0 of this block
+            // (no record spans across the block boundary) and we're at a pair boundary.
+            if matches!(format, OutputFormat::Bam)
+                && virtual_pos.uncompressed() == 0
+                && read_count > 0
+                && prev_was_read1 != Some(true)
+                && current_block_offset < end_offset
+            {
+                info!(
+                    "Clean block boundary at offset {current_block_offset} \
+                     after {blocks_processed} blocks, {read_count} records"
+                );
+                return Ok(ProcessResult {
+                    read_count,
+                    clean_boundary_offset: Some(current_block_offset),
+                });
+            }
+
             prev_block_offset = current_block_offset;
             // If this block starts at/after end_offset
             if current_block_offset >= end_offset {
@@ -506,7 +433,7 @@ where
         } else {
             prev_was_read1 = Some(false);
         }
-        write_fastq_to(&record, output).context("Failed to write FASTQ output")?;
+        write_record(&record).context("Failed to write record")?;
 
         read_count += 1;
 
@@ -531,58 +458,147 @@ where
     }
 
     info!("Completed: {blocks_processed} blocks, {read_count} reads");
-    Ok(read_count)
+    Ok(ProcessResult {
+        read_count,
+        clean_boundary_offset: None,
+    })
 }
 
-/// Process a byte range from a BAM file and output interleaved FASTQ.
+/// Read the BAM header from the beginning of a BAM file.
+fn read_bam_header(input_path: &str) -> Result<sam::Header> {
+    let file =
+        File::open(input_path).with_context(|| format!("Failed to open {input_path} for header"))?;
+    let mut reader = bam::io::Reader::new(std::io::BufReader::new(file));
+    reader.read_header().context("Failed to read BAM header")
+}
+
+/// Raw-copy middle BGZF blocks and handle the end boundary.
 ///
-/// This is the main entry point for the library. It extracts reads from the specified
-/// byte range, automatically aligning to BGZF block boundaries and ensuring read pairs
-/// are kept together.
+/// Copies raw BGZF blocks from `raw_start` to the first block at/after `end_offset`,
+/// then checks whether an R2 mate record from the end boundary block needs to be
+/// appended to complete a pair. Finishes by writing the BGZF EOF block.
+fn raw_copy_middle_and_end(
+    output: &mut dyn Write,
+    header: &sam::Header,
+    raw_start: u64,
+    end_offset: u64,
+    input_path: &str,
+    buffer: &mut Vec<u8>,
+) -> Result<(usize, u64)> {
+    // Find end of raw copy range: the first BGZF block at/after end_offset
+    let mut end_scan = std::io::BufReader::new(
+        File::open(input_path).with_context(|| format!("Failed to open {input_path}"))?,
+    );
+    let end_block = find_next_bgzf_block(&mut end_scan, end_offset, buffer)?;
+    let raw_end = end_block.unwrap_or(end_offset);
+
+    let mut extra_reads = 0;
+    let mut bytes_copied = 0;
+
+    if raw_start < raw_end {
+        // Copy raw BGZF blocks directly to output — no decompression or recompression needed
+        let mut copy_file =
+            File::open(input_path).with_context(|| format!("Failed to open {input_path}"))?;
+        copy_file.seek(SeekFrom::Start(raw_start))?;
+        bytes_copied = raw_end - raw_start;
+        std::io::copy(&mut (&mut copy_file).take(bytes_copied), &mut *output)?;
+
+        // Count records in the raw-copied range (decompression only, no recompression)
+        let mut count_file =
+            File::open(input_path).with_context(|| format!("Failed to open {input_path}"))?;
+        count_file.seek(SeekFrom::Start(raw_start))?;
+        let mut count_reader =
+            bam::io::Reader::from(bgzf::io::Reader::new(std::io::BufReader::new(count_file)));
+        let mut count_record = bam::Record::default();
+        loop {
+            let vpos = count_reader.get_ref().virtual_position();
+            if vpos.compressed() >= raw_end {
+                break;
+            }
+            match count_reader.read_record(&mut count_record) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => extra_reads += 1,
+            }
+        }
+
+        info!("Raw-copied {bytes_copied} bytes ({raw_start}..{raw_end}), {extra_reads} records");
+    }
+
+    // Handle end boundary: only include the first record from the end block
+    // if it's R2 (completing a pair whose R1 was in the last raw-copied block).
+    // The next chunk will process this block from the start, skipping the orphaned R2.
+    if let Some(end_block_start) = end_block {
+        let mut end_file = std::io::BufReader::new(
+            File::open(input_path).with_context(|| format!("Failed to open {input_path}"))?,
+        );
+        if let Some(record_offset) =
+            find_first_record_in_block(&mut end_file, end_block_start, buffer)?
+        {
+            end_file.seek(SeekFrom::Start(end_block_start))?;
+            let mut bgzf_end = bgzf::io::Reader::new(end_file);
+            let offset_u16 = u16::try_from(record_offset)
+                .map_err(|e| anyhow::anyhow!("Invalid offset: {e}"))?;
+            let vpos = bgzf::VirtualPosition::try_from((end_block_start, offset_u16))
+                .map_err(|e| anyhow::anyhow!("Invalid virtual position: {e}"))?;
+            bgzf_end.seek(vpos)?;
+            let mut bam_end = bam::io::Reader::from(bgzf_end);
+
+            let mut end_record = bam::Record::default();
+            if bam_end.read_record(&mut end_record)? > 0 {
+                let flags = end_record.flags();
+                if flags.is_segmented() && !flags.is_first_segment() {
+                    let mut end_writer = bam::io::Writer::new(&mut *output);
+                    end_writer
+                        .write_record(header, &end_record)
+                        .context("Failed to write end-boundary R2")?;
+                    end_writer
+                        .try_finish()
+                        .context("Failed to finalize end-boundary BGZF")?;
+                    extra_reads += 1;
+                    info!("Included R2 mate from end boundary block at {end_block_start}");
+                    return Ok((extra_reads, bytes_copied));
+                }
+            }
+        }
+    }
+
+    // Write BGZF EOF block
+    bgzf::io::Writer::new(&mut *output)
+        .try_finish()
+        .context("Failed to write BGZF EOF")?;
+
+    Ok((extra_reads, bytes_copied))
+}
+
+/// Process a byte range from a BAM file and output in the specified format.
 ///
-/// # Arguments
-///
-/// * `input_path` - Path to the input BAM file
-/// * `start_offset` - Starting byte offset (will be aligned to next BGZF block)
-/// * `end_offset` - Ending byte offset (processing stops at or after this offset)
-/// * `output` - Output stream for interleaved FASTQ data
-///
-/// # Returns
-///
-/// Total number of reads (not pairs) written to the output
+/// For BAM output, middle BGZF blocks are raw-copied from the input when a clean
+/// block boundary is found, avoiding recompression for the bulk of the data.
 ///
 /// # Errors
 ///
-/// Returns an error if:
-/// - Unable to open the input file
-/// - No valid BGZF blocks found in the specified range
-/// - BAM file is corrupted or malformed
-/// - Unable to write to output stream
+/// Returns an error if the input file cannot be opened or read, the BAM data is
+/// malformed, or writing to the output stream fails.
 pub fn process_blocks(
     input_path: &str,
     start_offset: u64,
     end_offset: u64,
     output: &mut dyn Write,
+    format: OutputFormat,
 ) -> Result<usize> {
     let file = File::open(input_path).with_context(|| format!("Failed to open {input_path}"))?;
     let mut reader = std::io::BufReader::new(file);
 
     let mut current_offset = start_offset;
-    let mut total_reads = 0;
-
-    // Allocate a single reusable buffer for block scanning and validation
-    // Needs to be large enough for find_next_bgzf_block (MAX + 15)
     let mut buffer = vec![0u8; BGZF_MAX_BLOCK_SIZE + 15];
 
     loop {
         let Some(block_start) = find_next_bgzf_block(&mut reader, current_offset, &mut buffer)?
         else {
-            // EOF reached without finding a block
             break;
         };
 
         if block_start >= end_offset {
-            // next block is after end_offset
             break;
         }
 
@@ -592,19 +608,73 @@ pub fn process_blocks(
                 "Processing byte range: {start_offset} to {end_offset} (aligned to block at {aligned_start})"
             );
 
-            // Construct the reader for processing
             reader.seek(SeekFrom::Start(aligned_start))?;
-
             let mut bgzf_reader = bgzf::io::Reader::new(&mut reader);
             bgzf_reader.seek(bgzf::VirtualPosition::from(virtual_pos))?;
             let mut bam_reader = bam::io::Reader::from(bgzf_reader);
 
-            let count = process_records(&mut bam_reader, aligned_start, end_offset, output)?;
-            total_reads += count;
-            break;
+            return match format {
+                OutputFormat::Fastq => {
+                    let mut write_fn = |record: &bam::Record| write_fastq_to(record, output);
+                    let result = process_records(
+                        &mut bam_reader,
+                        aligned_start,
+                        end_offset,
+                        &mut write_fn,
+                        OutputFormat::Fastq,
+                    )?;
+                    Ok(result.read_count)
+                }
+                OutputFormat::Bam => {
+                    let header = read_bam_header(input_path)?;
+                    let mut bam_writer = bam::io::Writer::new(output);
+                    bam_writer.write_header(&header)?;
+
+                    let result;
+                    {
+                        let mut write_fn = |record: &bam::Record| -> std::io::Result<()> {
+                            bam_writer.write_record(&header, record)
+                        };
+                        result = process_records(
+                            &mut bam_reader,
+                            aligned_start,
+                            end_offset,
+                            &mut write_fn,
+                            OutputFormat::Bam,
+                        )?;
+                    }
+
+                    let mut total = result.read_count;
+
+                    if let Some(raw_start) = result.clean_boundary_offset {
+                        // Decompose the BAM writer to access the raw output stream.
+                        // flush() compresses any buffered data without writing an EOF block.
+                        // into_inner() then yields the underlying writer.
+                        let mut bgzf_writer = bam_writer.into_inner();
+                        bgzf_writer.flush()?;
+                        let raw_output = bgzf_writer.into_inner();
+
+                        let (extra, _bytes) = raw_copy_middle_and_end(
+                            raw_output,
+                            &header,
+                            raw_start,
+                            end_offset,
+                            input_path,
+                            &mut buffer,
+                        )?;
+                        total += extra;
+                    } else {
+                        bam_writer
+                            .try_finish()
+                            .context("Failed to finalize BGZF output")?;
+                    }
+
+                    Ok(total)
+                }
+            };
         }
         debug!("Invalid block at {block_start}, continuing search");
         current_offset = block_start + 1;
     }
-    Ok(total_reads)
+    Ok(0)
 }

@@ -22,6 +22,10 @@ struct Args {
     #[arg(short, long)]
     output: Option<String>,
 
+    /// Output format: fastq or bam
+    #[arg(short, long, default_value = "fastq")]
+    format: String,
+
     /// Log level (off, error, warn, info, debug, trace)
     #[arg(short = 'l', long, default_value = "info")]
     log_level: String,
@@ -54,9 +58,20 @@ fn main() -> Result<()> {
         Box::new(std::io::BufWriter::new(stdout.lock()))
     };
 
-    let read_count =
-        bamslice::process_blocks(&args.input, args.start_offset, args.end_offset, &mut writer)?;
+    let format = match args.format.as_str() {
+        "fastq" => bamslice::OutputFormat::Fastq,
+        "bam" => bamslice::OutputFormat::Bam,
+        other => anyhow::bail!("Unknown format '{other}'. Expected 'fastq' or 'bam'."),
+    };
 
-    info!("Total reads extracted: {read_count}");
+    let processed_reads = bamslice::process_blocks(
+        &args.input,
+        args.start_offset,
+        args.end_offset,
+        &mut writer,
+        format,
+    )?;
+
+    info!("Total reads extracted: {processed_reads}");
     Ok(())
 }
