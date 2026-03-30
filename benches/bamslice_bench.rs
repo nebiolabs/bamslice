@@ -2,7 +2,6 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 use std::hint::black_box;
 use std::io::Cursor;
 
-/// Benchmark full processing pipeline with different byte ranges
 fn bench_process_blocks(c: &mut Criterion) {
     let test_file = "tests/fixtures/dnbseq-test1.bam";
 
@@ -13,33 +12,39 @@ fn bench_process_blocks(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("process_blocks");
 
-    // Different range sizes to benchmark
     let ranges = [
         ("small_500kb", 10_000u64, 510_000u64),
         ("medium_1mb", 10_000u64, 1_010_000u64),
         ("large_5mb", 10_000u64, 5_010_000u64),
     ];
 
-    for (name, start, end) in ranges {
-        let range_size = end - start;
-        group.throughput(Throughput::Bytes(range_size));
+    for format in [bamslice::OutputFormat::Fastq, bamslice::OutputFormat::Bam] {
+        let fmt_name = match format {
+            bamslice::OutputFormat::Fastq => "fastq",
+            bamslice::OutputFormat::Bam => "bam",
+        };
 
-        group.bench_with_input(
-            BenchmarkId::from_parameter(name),
-            &(start, end),
-            |b, &(start, end)| {
-                b.iter(|| {
-                    let mut output = Cursor::new(Vec::new());
-                    bamslice::process_blocks(
-                        test_file,
-                        black_box(start),
-                        black_box(end),
-                        &mut output,
-                        bamslice::OutputFormat::Fastq,
-                    )
-                });
-            },
-        );
+        for (name, start, end) in ranges {
+            let range_size = end - start;
+            group.throughput(Throughput::Bytes(range_size));
+
+            group.bench_with_input(
+                BenchmarkId::new(fmt_name, name),
+                &(start, end),
+                |b, &(start, end)| {
+                    b.iter(|| {
+                        let mut output = Cursor::new(Vec::new());
+                        bamslice::process_blocks(
+                            test_file,
+                            black_box(start),
+                            black_box(end),
+                            &mut output,
+                            format,
+                        )
+                    });
+                },
+            );
+        }
     }
 
     group.finish();
