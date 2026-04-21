@@ -469,8 +469,8 @@ where
 
 /// Read the BAM header from the beginning of a BAM file.
 fn read_bam_header(input_path: &str) -> Result<sam::Header> {
-    let file =
-        File::open(input_path).with_context(|| format!("Failed to open {input_path} for header"))?;
+    let file = File::open(input_path)
+        .with_context(|| format!("Failed to open {input_path} for header"))?;
     let mut reader = bam::io::Reader::new(std::io::BufReader::new(file));
     reader.read_header().context("Failed to read BAM header")
 }
@@ -539,8 +539,8 @@ fn raw_copy_middle_and_end(
         {
             end_file.seek(SeekFrom::Start(end_block_start))?;
             let mut bgzf_end = bgzf::io::Reader::new(end_file);
-            let offset_u16 = u16::try_from(record_offset)
-                .map_err(|e| anyhow::anyhow!("Invalid offset: {e}"))?;
+            let offset_u16 =
+                u16::try_from(record_offset).map_err(|e| anyhow::anyhow!("Invalid offset: {e}"))?;
             let vpos = bgzf::VirtualPosition::try_from((end_block_start, offset_u16))
                 .map_err(|e| anyhow::anyhow!("Invalid virtual position: {e}"))?;
             bgzf_end.seek(vpos)?;

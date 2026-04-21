@@ -1,3 +1,4 @@
+use bamslice::OutputFormat;
 use std::collections::HashSet;
 use std::fs;
 
@@ -45,12 +46,20 @@ fn test_split_processing_produces_all_reads_no_dupes() {
 
     // Process first half in memory
     let mut chunk1_buffer = Vec::new();
-    let chunk1_reads = bamslice::process_blocks(TEST_BAM, 0, half, &mut chunk1_buffer, bamslice::OutputFormat::Fastq).unwrap();
+    let chunk1_reads =
+        bamslice::process_blocks(TEST_BAM, 0, half, &mut chunk1_buffer, OutputFormat::Fastq)
+            .unwrap();
 
     // Process second half in memory
     let mut chunk2_buffer = Vec::new();
-    let chunk2_reads =
-        bamslice::process_blocks(TEST_BAM, half, file_size, &mut chunk2_buffer, bamslice::OutputFormat::Fastq).unwrap();
+    let chunk2_reads = bamslice::process_blocks(
+        TEST_BAM,
+        half,
+        file_size,
+        &mut chunk2_buffer,
+        OutputFormat::Fastq,
+    )
+    .unwrap();
 
     // Convert to strings
     let chunk1_content = String::from_utf8(chunk1_buffer).unwrap();
@@ -104,7 +113,8 @@ fn test_whole_file_processing() {
 
     // Test processing the entire file in one go, in memory
     let mut buffer = Vec::new();
-    let total_reads = bamslice::process_blocks(TEST_BAM, 0, file_size, &mut buffer, bamslice::OutputFormat::Fastq).unwrap();
+    let total_reads =
+        bamslice::process_blocks(TEST_BAM, 0, file_size, &mut buffer, OutputFormat::Fastq).unwrap();
 
     let content = String::from_utf8(buffer).unwrap();
     let fastq_reads = count_fastq_reads(&content);
@@ -126,7 +136,7 @@ fn test_first_read_content() {
 
     // Process the entire file
     let mut buffer = Vec::new();
-    bamslice::process_blocks(TEST_BAM, 0, file_size, &mut buffer, bamslice::OutputFormat::Fastq).unwrap();
+    bamslice::process_blocks(TEST_BAM, 0, file_size, &mut buffer, OutputFormat::Fastq).unwrap();
 
     let content = String::from_utf8(buffer).unwrap();
     let mut lines = content.lines();
@@ -165,7 +175,14 @@ fn test_blocks_start_with_read1() {
 
     for &split_point in &split_points {
         let mut buffer = Vec::new();
-        bamslice::process_blocks(TEST_BAM, split_point, file_size, &mut buffer, bamslice::OutputFormat::Fastq).unwrap();
+        bamslice::process_blocks(
+            TEST_BAM,
+            split_point,
+            file_size,
+            &mut buffer,
+            OutputFormat::Fastq,
+        )
+        .unwrap();
 
         let content = String::from_utf8(buffer).unwrap();
         let mut lines = content.lines();
@@ -193,7 +210,7 @@ fn test_interleaved_pairs_in_output() {
 
     // Process second half
     let mut buffer = Vec::new();
-    bamslice::process_blocks(TEST_BAM, half, file_size, &mut buffer, bamslice::OutputFormat::Fastq).unwrap();
+    bamslice::process_blocks(TEST_BAM, half, file_size, &mut buffer, OutputFormat::Fastq).unwrap();
 
     let content = String::from_utf8(buffer).unwrap();
     let lines: Vec<&str> = content.lines().collect();
@@ -228,11 +245,14 @@ fn test_complete_pairs_at_boundaries() {
 
     // Process first chunk
     let mut chunk1 = Vec::new();
-    let chunk1_count = bamslice::process_blocks(TEST_BAM, 0, split, &mut chunk1, bamslice::OutputFormat::Fastq).unwrap();
+    let chunk1_count =
+        bamslice::process_blocks(TEST_BAM, 0, split, &mut chunk1, OutputFormat::Fastq).unwrap();
 
     // Process second chunk
     let mut chunk2 = Vec::new();
-    let chunk2_count = bamslice::process_blocks(TEST_BAM, split, file_size, &mut chunk2, bamslice::OutputFormat::Fastq).unwrap();
+    let chunk2_count =
+        bamslice::process_blocks(TEST_BAM, split, file_size, &mut chunk2, OutputFormat::Fastq)
+            .unwrap();
 
     // Both chunks should have even number of reads (complete pairs)
     assert_eq!(
@@ -252,12 +272,19 @@ fn test_ont_reads() {
     let split = 180;
     // Process first chunk
     let mut chunk1 = Vec::new();
-    let chunk1_count = bamslice::process_blocks(TEST_ONT_BAM, 0, split, &mut chunk1, bamslice::OutputFormat::Fastq).unwrap();
+    let chunk1_count =
+        bamslice::process_blocks(TEST_ONT_BAM, 0, split, &mut chunk1, OutputFormat::Fastq).unwrap();
 
     // Process second chunk
     let mut chunk2 = Vec::new();
-    let chunk2_count =
-        bamslice::process_blocks(TEST_ONT_BAM, split, 1_000_000, &mut chunk2, bamslice::OutputFormat::Fastq).unwrap();
+    let chunk2_count = bamslice::process_blocks(
+        TEST_ONT_BAM,
+        split,
+        1_000_000,
+        &mut chunk2,
+        OutputFormat::Fastq,
+    )
+    .unwrap();
 
     assert_eq!(chunk1_count, 84);
     assert_eq!(chunk2_count, 125 - 84);
@@ -272,7 +299,13 @@ fn test_skips_false_positive_gzip_magic() {
     let end_offset = 200_000;
 
     let mut buffer = Vec::new();
-    let result = bamslice::process_blocks(TEST_BAM, false_positive_offset, end_offset, &mut buffer, bamslice::OutputFormat::Fastq);
+    let result = bamslice::process_blocks(
+        TEST_BAM,
+        false_positive_offset,
+        end_offset,
+        &mut buffer,
+        OutputFormat::Fastq,
+    );
     assert!(
         result.is_ok(),
         "Should skip false positive gzip magic at {} and find valid block, got error: {:?}",
@@ -293,7 +326,13 @@ fn test_dnbseq_seek_issue() {
     let end_offset = 100_000;
 
     let mut buffer = Vec::new();
-    let result = bamslice::process_blocks(TEST_FILE, start_offset, end_offset, &mut buffer, bamslice::OutputFormat::Fastq);
+    let result = bamslice::process_blocks(
+        TEST_FILE,
+        start_offset,
+        end_offset,
+        &mut buffer,
+        OutputFormat::Fastq,
+    );
 
     assert!(
         result.is_ok(),
@@ -316,7 +355,13 @@ fn test_process_near_eof() {
 
     // Start scanning near the end of the file (file is ~13.6MB)
     // This should still find the last block and extract remaining reads
-    let result = bamslice::process_blocks(TEST_FILE, 13_590_000, 13_700_000, &mut output, bamslice::OutputFormat::Fastq);
+    let result = bamslice::process_blocks(
+        TEST_FILE,
+        13_590_000,
+        13_700_000,
+        &mut output,
+        OutputFormat::Fastq,
+    );
 
     assert!(result.is_ok(), "Should handle near-EOF offsets gracefully");
     let total_reads = result.unwrap();
@@ -347,7 +392,13 @@ fn test_window_after_last_block() {
     let mut output = Vec::new();
 
     // Start beyond all BGZF blocks. 13_598_802 finds 146 reads,so we start just after that
-    let result = bamslice::process_blocks(TEST_FILE, 13_598_803, u64::MAX, &mut output, bamslice::OutputFormat::Fastq);
+    let result = bamslice::process_blocks(
+        TEST_FILE,
+        13_598_803,
+        u64::MAX,
+        &mut output,
+        OutputFormat::Fastq,
+    );
 
     assert!(
         result.is_ok(),
@@ -365,7 +416,13 @@ fn test_window_after_end_of_file() {
     let mut output = Vec::new();
 
     // Start beyond all BGZF blocks. 13_598_802 finds 146 reads,so we start just after that
-    let result = bamslice::process_blocks(TEST_FILE, 18_000_000, u64::MAX, &mut output, bamslice::OutputFormat::Fastq);
+    let result = bamslice::process_blocks(
+        TEST_FILE,
+        18_000_000,
+        u64::MAX,
+        &mut output,
+        OutputFormat::Fastq,
+    );
 
     assert!(
         result.is_ok(),
@@ -397,8 +454,11 @@ fn test_dnbseq_small_chunks_find_all_reads() {
         let end = (start + CHUNK_SIZE).min(file_size);
 
         let mut buffer = Vec::new();
-        let chunk_reads = bamslice::process_blocks(TEST_FILE, start, end, &mut buffer, bamslice::OutputFormat::Fastq)
-            .unwrap_or_else(|e| panic!("Failed to process chunk {chunk_num} ({start}-{end}): {e}"));
+        let chunk_reads =
+            bamslice::process_blocks(TEST_FILE, start, end, &mut buffer, OutputFormat::Fastq)
+                .unwrap_or_else(|e| {
+                    panic!("Failed to process chunk {chunk_num} ({start}-{end}): {e}")
+                });
 
         total_reads += chunk_reads;
 
@@ -446,8 +506,11 @@ fn test_no_orphaned_reads_in_chunks() {
         let end = (start + CHUNK_SIZE).min(file_size);
 
         let mut buffer = Vec::new();
-        let chunk_reads = bamslice::process_blocks(TEST_FILE, start, end, &mut buffer, bamslice::OutputFormat::Fastq)
-            .unwrap_or_else(|e| panic!("Failed to process chunk {chunk_num} ({start}-{end}): {e}"));
+        let chunk_reads =
+            bamslice::process_blocks(TEST_FILE, start, end, &mut buffer, OutputFormat::Fastq)
+                .unwrap_or_else(|e| {
+                    panic!("Failed to process chunk {chunk_num} ({start}-{end}): {e}")
+                });
 
         // Check the first and last few reads in the buffer to see what we got
         if !chunk_reads.is_multiple_of(2) {
@@ -514,17 +577,20 @@ fn extract_bam_read_names(bam_data: &[u8]) -> Vec<String> {
 /// in the same order.
 fn assert_fastq_bam_equivalent(bam_path: &str, start: u64, end: u64) {
     let mut fastq_buf = Vec::new();
-    bamslice::process_blocks(
-        bam_path, start, end, &mut fastq_buf, bamslice::OutputFormat::Fastq,
-    )
-    .unwrap();
+    bamslice::process_blocks(bam_path, start, end, &mut fastq_buf, OutputFormat::Fastq).unwrap();
     let fastq_names: Vec<String> = String::from_utf8(fastq_buf)
         .unwrap()
         .lines()
         .enumerate()
         .filter_map(|(i, line)| {
             if i % 4 == 0 && line.starts_with('@') {
-                Some(line[1..].split_whitespace().next().unwrap_or_else(|| &line[1..]).to_string())
+                Some(
+                    line[1..]
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or_else(|| &line[1..])
+                        .to_string(),
+                )
             } else {
                 None
             }
@@ -532,10 +598,7 @@ fn assert_fastq_bam_equivalent(bam_path: &str, start: u64, end: u64) {
         .collect();
 
     let mut bam_buf = Vec::new();
-    bamslice::process_blocks(
-        bam_path, start, end, &mut bam_buf, bamslice::OutputFormat::Bam,
-    )
-    .unwrap();
+    bamslice::process_blocks(bam_path, start, end, &mut bam_buf, OutputFormat::Bam).unwrap();
     let bam_names = extract_bam_read_names(&bam_buf);
 
     assert_eq!(
@@ -555,10 +618,10 @@ fn assert_fastq_bam_equivalent(bam_path: &str, start: u64, end: u64) {
 
 #[test]
 fn test_bam_fastq_equivalence_split() {
-    let file_size = get_file_size(TEST_BAM);
-    for &split in &[file_size / 4, file_size / 3, file_size / 2, file_size * 2 / 3] {
+    let fs = get_file_size(TEST_BAM);
+    for &split in &[fs / 4, fs / 3, fs / 2, fs * 2 / 3] {
         assert_fastq_bam_equivalent(TEST_BAM, 0, split);
-        assert_fastq_bam_equivalent(TEST_BAM, split, file_size);
+        assert_fastq_bam_equivalent(TEST_BAM, split, fs);
     }
 }
 
@@ -595,14 +658,9 @@ fn test_single_end_whole_file() {
     let file_size = get_file_size(TEST_FILE);
 
     let mut buffer = Vec::new();
-    let total_reads = bamslice::process_blocks(
-        TEST_FILE,
-        0,
-        file_size,
-        &mut buffer,
-        bamslice::OutputFormat::Fastq,
-    )
-    .unwrap();
+    let total_reads =
+        bamslice::process_blocks(TEST_FILE, 0, file_size, &mut buffer, OutputFormat::Fastq)
+            .unwrap();
 
     let content = String::from_utf8(buffer).unwrap();
     let fastq_reads = count_fastq_reads(&content);
