@@ -419,7 +419,10 @@ where
             // Strict validation for collated reads
             if prev_was_read1 == Some(true) && current_is_read1 {
                 anyhow::bail!(
-                    "Found consecutive R1 reads ({}). Input BAM must be collated.",
+                    "Read '{}' has READ_PAIRED set but follows another R1 with no \
+                     intervening R2. Either the BAM is not collated, or it contains \
+                     only R1 reads from a paired-end run (e.g. extracted with \
+                     `samtools view -f 64`).",
                     String::from_utf8_lossy(record.name().unwrap_or_default().as_ref())
                 );
             }

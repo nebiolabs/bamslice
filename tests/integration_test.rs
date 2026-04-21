@@ -582,3 +582,47 @@ fn test_bam_fastq_equivalence_ont() {
     assert_fastq_bam_equivalent(TEST_ONT_BAM, 0, split);
     assert_fastq_bam_equivalent(TEST_ONT_BAM, split, 1_000_000);
 }
+
+// --- Single-end read tests ---
+// single_end_test_small.bam contains 21,962 single-end (non-segmented) reads.
+// samtools view -c tests/fixtures/single_end_test_small.bam  => 21962
+
+#[test]
+fn test_single_end_whole_file() {
+    const TEST_FILE: &str = "tests/fixtures/single_end_test_small.bam";
+    const EXPECTED_READS: usize = 21962;
+
+    let file_size = get_file_size(TEST_FILE);
+
+    let mut buffer = Vec::new();
+    let total_reads = bamslice::process_blocks(
+        TEST_FILE,
+        0,
+        file_size,
+        &mut buffer,
+        bamslice::OutputFormat::Fastq,
+    )
+    .unwrap();
+
+    let content = String::from_utf8(buffer).unwrap();
+    let fastq_reads = count_fastq_reads(&content);
+
+    assert_eq!(
+        total_reads, fastq_reads,
+        "Returned count must match FASTQ content"
+    );
+    assert_eq!(
+        fastq_reads, EXPECTED_READS,
+        "Read count mismatch: got {fastq_reads}, expected {EXPECTED_READS}"
+    );
+
+    // Single-end reads must NOT carry /1 or /2 suffixes
+    for (i, line) in content.lines().enumerate() {
+        if i % 4 == 0 {
+            assert!(
+                !line.contains("/1") && !line.contains("/2"),
+                "Single-end read header should not have /1 or /2 suffix: {line}"
+            );
+        }
+    }
+}
