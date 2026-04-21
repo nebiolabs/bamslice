@@ -320,7 +320,7 @@ where
 }
 
 struct ProcessResult {
-    read_count: usize,
+    parsed_reads: usize,
     /// block offset where raw copying can start
     clean_boundary_offset: Option<u64>,
 }
@@ -340,7 +340,7 @@ where
     R: Read + Seek,
     F: FnMut(&bam::Record) -> std::io::Result<()>,
 {
-    let mut read_count = 0;
+    let mut parsed_reads = 0;
     let mut record = bam::Record::default();
     let mut blocks_processed = 0;
     let mut prev_block_offset = start_aligned_offset;
@@ -358,16 +358,16 @@ where
             // (no record spans across the block boundary) and we're at a pair boundary.
             if matches!(format, OutputFormat::Bam)
                 && virtual_pos.uncompressed() == 0
-                && read_count > 0
+                && parsed_reads > 0
                 && prev_was_read1 != Some(true)
                 && current_block_offset < end_offset
             {
                 info!(
                     "Clean block boundary at offset {current_block_offset} \
-                     after {blocks_processed} blocks, {read_count} records"
+                     after {blocks_processed} blocks, {parsed_reads} records"
                 );
                 return Ok(ProcessResult {
-                    read_count,
+                    parsed_reads,
                     clean_boundary_offset: Some(current_block_offset),
                 });
             }
@@ -409,7 +409,7 @@ where
         // Make sure that both mates stay together
         if flags.is_segmented() {
             // Skip orphaned read2 at the start of processing region
-            if read_count == 0 && !current_is_read1 {
+            if parsed_reads == 0 && !current_is_read1 {
                 debug!(
                     "Skipping read2 at start of processing region, it was handled in the previous region"
                 );
@@ -435,10 +435,10 @@ where
         }
         write_record(&record).context("Failed to write record")?;
 
-        read_count += 1;
+        parsed_reads += 1;
 
-        if read_count % 100_000 == 0 {
-            info!("Processed {read_count} reads...");
+        if parsed_reads % 100_000 == 0 {
+            info!("Processed {parsed_reads} reads...");
         }
 
         // After writing a record, check if we're beyond end_offset and:
@@ -457,9 +457,9 @@ where
         }
     }
 
-    info!("Completed: {blocks_processed} blocks, {read_count} reads");
+    info!("Completed: {blocks_processed} blocks, {parsed_reads} reads");
     Ok(ProcessResult {
-        read_count,
+        parsed_reads,
         clean_boundary_offset: None,
     })
 }
@@ -623,7 +623,7 @@ pub fn process_blocks(
                         &mut write_fn,
                         OutputFormat::Fastq,
                     )?;
-                    Ok(result.read_count)
+                    Ok(result.parsed_reads)
                 }
                 OutputFormat::Bam => {
                     let header = read_bam_header(input_path)?;
@@ -644,7 +644,7 @@ pub fn process_blocks(
                         )?;
                     }
 
-                    let mut total = result.read_count;
+                    let mut total = result.parsed_reads;
 
                     if let Some(raw_start) = result.clean_boundary_offset {
                         // Decompose the BAM writer to access the raw output stream.
