@@ -100,3 +100,12 @@ test process_blocks/small_500kb ... bench:  14,662,961 ns/iter (+/- 181,163)
 test process_blocks/medium_1mb ... bench:  29,162,744 ns/iter (+/- 211,298)
 test process_blocks/large_5mb ... bench: 145,615,842 ns/iter (+/- 2,178,111)
 ----------------------------------------
+
+=== 2026-04-21 02:32:41 | c70b63b | main ===
+test process_blocks/fastq/small_500kb ... bench:  12,023,025 ns/iter (+/- 210,811)
+test process_blocks/fastq/medium_1mb ... bench:  23,867,609 ns/iter (+/- 255,580)
+test process_blocks/fastq/large_5mb ... bench: 118,867,915 ns/iter (+/- 2,401,518)
+test process_blocks/bam/small_500kb ... bench:  32,563,153 ns/iter (+/- 782,434)
+test process_blocks/bam/medium_1mb ... bench:  65,008,762 ns/iter (+/- 776,643)
+test process_blocks/bam/large_5mb ... bench: 328,836,251 ns/iter (+/- 2,276,190)
+----------------------------------------
