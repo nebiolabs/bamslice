@@ -109,3 +109,12 @@ test process_blocks/bam/small_500kb ... bench:  32,563,153 ns/iter (+/- 782,434)
 test process_blocks/bam/medium_1mb ... bench:  65,008,762 ns/iter (+/- 776,643)
 test process_blocks/bam/large_5mb ... bench: 328,836,251 ns/iter (+/- 2,276,190)
 ----------------------------------------
+
+=== 2026-04-21 03:18:30 | d16d30a | main ===
+test process_blocks/fastq/small_500kb ... bench:  14,779,817 ns/iter (+/- 583,584)
+test process_blocks/fastq/medium_1mb ... bench:  29,401,313 ns/iter (+/- 106,392)
+test process_blocks/fastq/large_5mb ... bench: 146,611,216 ns/iter (+/- 2,455,072)
+test process_blocks/bam/small_500kb ... bench:  34,828,580 ns/iter (+/- 115,598)
+test process_blocks/bam/medium_1mb ... bench:  69,241,857 ns/iter (+/- 263,235)
+test process_blocks/bam/large_5mb ... bench: 350,556,885 ns/iter (+/- 1,110,880)
+----------------------------------------
