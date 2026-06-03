@@ -22,6 +22,8 @@
 //!
 //! - Read pairs are kept together by reading one extra record past the end boundary if needed
 
+pub mod fastp_merge;
+
 use anyhow::{Context, Result};
 use log::{debug, info};
 use noodles::bam;

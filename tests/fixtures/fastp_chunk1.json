@@ -1,0 +1,137 @@
+{
+    "summary": {
+        "fastp_version": "0.23.2",
+        "sequencing": "paired end (150 cycles + 150 cycles)",
+        "before_filtering": {
+            "total_reads": 1000,
+            "total_bases": 150000,
+            "q20_bases": 140000,
+            "q30_bases": 120000,
+            "q20_rate": 0.9333333333333333,
+            "q30_rate": 0.8,
+            "read1_mean_length": 150,
+            "read2_mean_length": 150,
+            "gc_content": 0.42
+        },
+        "after_filtering": {
+            "total_reads": 950,
+            "total_bases": 142500,
+            "q20_bases": 135000,
+            "q30_bases": 115000,
+            "q20_rate": 0.9473684210526316,
+            "q30_rate": 0.8070175438596491,
+            "read1_mean_length": 150,
+            "read2_mean_length": 150,
+            "gc_content": 0.42
+        }
+    },
+    "filtering_result": {
+        "passed_filter_reads": 950,
+        "low_quality_reads": 30,
+        "too_many_N_reads": 10,
+        "too_short_reads": 10,
+        "too_long_reads": 0
+    },
+    "duplication": {
+        "rate": 0.1
+    },
+    "insert_size": {
+        "peak": 7,
+        "unknown": 50,
+        "histogram": [0, 5, 10, 20, 50, 100, 150, 200, 150, 100, 50]
+    },
+    "adapter_cutting": {
+        "adapter_trimmed_reads": 200,
+        "adapter_trimmed_bases": 5000,
+        "read1_adapter_sequence": "AGATCGGAAGAGC",
+        "read2_adapter_sequence": "AGATCGGAAGAGC",
+        "read1_adapter_counts": {
+            "AGATCGGAAGAGC": 150,
+            "AGATCGGAAGAG": 50
+        },
+        "read2_adapter_counts": {
+            "AGATCGGAAGAGC": 140,
+            "AGATCGGAAGAG": 60
+        }
+    },
+    "read1_before_filtering": {
+        "total_reads": 500,
+        "total_bases": 75000,
+        "q20_bases": 70000,
+        "q30_bases": 60000,
+        "total_cycles": 150,
+        "quality_curves": {
+            "mean": [35.0, 36.0, 37.0]
+        },
+        "content_curves": {
+            "A": [0.25, 0.25, 0.25],
+            "T": [0.25, 0.25, 0.25],
+            "C": [0.25, 0.25, 0.25],
+            "G": [0.25, 0.25, 0.25]
+        },
+        "kmer_count": {
+            "AAAAA": 100,
+            "AAAAC": 50
+        }
+    },
+    "read1_after_filtering": {
+        "total_reads": 475,
+        "total_bases": 71250,
+        "q20_bases": 67000,
+        "q30_bases": 57000,
+        "total_cycles": 150,
+        "quality_curves": {
+            "mean": [36.0, 37.0, 38.0]
+        },
+        "content_curves": {
+            "A": [0.25, 0.25, 0.25],
+            "T": [0.25, 0.25, 0.25],
+            "C": [0.25, 0.25, 0.25],
+            "G": [0.25, 0.25, 0.25]
+        },
+        "kmer_count": {
+            "AAAAA": 95,
+            "AAAAC": 47
+        }
+    },
+    "read2_before_filtering": {
+        "total_reads": 500,
+        "total_bases": 75000,
+        "q20_bases": 70000,
+        "q30_bases": 60000,
+        "total_cycles": 150,
+        "quality_curves": {
+            "mean": [34.0, 35.0, 36.0]
+        },
+        "content_curves": {
+            "A": [0.25, 0.25, 0.25],
+            "T": [0.25, 0.25, 0.25],
+            "C": [0.25, 0.25, 0.25],
+            "G": [0.25, 0.25, 0.25]
+        },
+        "kmer_count": {
+            "AAAAA": 90,
+            "AAAAC": 45
+        }
+    },
+    "read2_after_filtering": {
+        "total_reads": 475,
+        "total_bases": 71250,
+        "q20_bases": 67000,
+        "q30_bases": 57000,
+        "total_cycles": 150,
+        "quality_curves": {
+            "mean": [35.0, 36.0, 37.0]
+        },
+        "content_curves": {
+            "A": [0.25, 0.25, 0.25],
+            "T": [0.25, 0.25, 0.25],
+            "C": [0.25, 0.25, 0.25],
+            "G": [0.25, 0.25, 0.25]
+        },
+        "kmer_count": {
+            "AAAAA": 85,
+            "AAAAC": 43
+        }
+    }
+}

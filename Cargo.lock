@@ -106,6 +106,7 @@ dependencies = [
  "log",
  "md5",
  "noodles",
+ "serde_json",
 ]
 
 [[package]]
