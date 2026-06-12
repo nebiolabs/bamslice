@@ -39,7 +39,7 @@ pedantic = { level = "warn" }
 nursery = { level = "warn" }
 
 [dependencies]
-noodles = { version = "0.109.0", features = ["bam", "bgzf", "sam"] }
+noodles = { version = "0.111.0", features = ["bam", "bgzf", "sam"] }
 clap = { version = "4.6", features = ["derive"] }
 anyhow = "1.0"
 log = "0.4"
