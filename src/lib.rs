@@ -205,23 +205,27 @@ fn write_fastq_to(record: &bam::Record, output: &mut dyn Write) -> std::io::Resu
 }
 
 /// Check if buffer contains a valid BAM record header per SAM spec Section 4.2.
-fn is_valid_record_start(buf: &[u8], len: usize) -> bool {
+/// `max_ref_id` should be set to the number of reference sequences in the BAM header.
+fn is_valid_record_start(buf: &[u8], len: usize, max_ref_id: i32) -> bool {
     if len < 36 {
         return false;
     }
 
     // Sanity check block size: must be at least 32 (fixed fields) and not absurdly large
+    // Realistic max for a single record is ~5MB (reads are typically 100-10000bp, with aux fields)
     let block_size = i32::from_le_bytes(buf[0..4].try_into().unwrap());
-    if !(32..=100_000_000).contains(&block_size) {
+    if !(32..=5_000_000).contains(&block_size) {
         return false;
     }
 
     let ref_id = i32::from_le_bytes(buf[4..8].try_into().unwrap());
-    if ref_id < -1 {
+    // ref_id must be -1 (unmapped) or valid sequence index (0 to max_ref_id-1)
+    if !(-1..max_ref_id).contains(&ref_id) {
         return false;
     }
 
     let pos = i32::from_le_bytes(buf[8..12].try_into().unwrap());
+
     if pos < -1 {
         return false;
     }
@@ -267,6 +271,7 @@ fn find_first_record_in_block<R>(
     reader: &mut R,
     block_start: u64,
     buffer: &mut Vec<u8>,
+    max_ref_id: i32,
 ) -> Result<Option<u64>>
 where
     R: Read + Seek,
@@ -280,6 +285,7 @@ where
     let bytes_read = std::io::Read::read(&mut reader, buffer)?;
 
     if bytes_read < 36 {
+        debug!("Block at {block_start} only has {bytes_read} bytes after decompression (need 36)");
         return Ok(None);
     }
 
@@ -287,10 +293,16 @@ where
     // We scan byte-by-byte because a BAM record can start at any offset within the decompressed block.
     // There is no alignment guarantee for records within the block.
     for i in 0..bytes_read - 36 {
-        if is_valid_record_start(&buffer[i..], bytes_read - i) {
+        if is_valid_record_start(&buffer[i..], bytes_read - i, max_ref_id) {
+            let block_size = i32::from_le_bytes(buffer[i..i+4].try_into().unwrap());
+            let ref_id = i32::from_le_bytes(buffer[i+4..i+8].try_into().unwrap());
+            let pos = i32::from_le_bytes(buffer[i+8..i+12].try_into().unwrap());
+            let l_read_name = buffer[i+12];
+            debug!("Found candidate record at offset {i}: block_size={block_size}, ref_id={ref_id}, pos={pos}, l_read_name={l_read_name}");
             return Ok(Some(i as u64));
         }
     }
+    debug!("No valid record start found in block at {block_start} (scanned {bytes_read} bytes)");
     Ok(None)
 }
 
@@ -300,6 +312,7 @@ fn validate_block<R>(
     reader: &mut R,
     aligned_start: u64,
     buffer: &mut Vec<u8>,
+    max_ref_id: i32,
 ) -> Result<Option<u64>>
 where
     R: Read + Seek,
@@ -307,7 +320,7 @@ where
     reader.seek(SeekFrom::Start(aligned_start))?;
 
     // Try to find a record start within the decompressed block
-    match find_first_record_in_block(reader, aligned_start, buffer) {
+    match find_first_record_in_block(reader, aligned_start, buffer, max_ref_id) {
         Ok(Some(offset)) => {
             let offset_u16 =
                 u16::try_from(offset).map_err(|e| anyhow::anyhow!("Invalid offset: {e}"))?;
@@ -531,11 +544,13 @@ fn raw_copy_middle_and_end(
     // if it's R2 (completing a pair whose R1 was in the last raw-copied block).
     // The next chunk will process this block from the start, skipping the orphaned R2.
     if let Some(end_block_start) = end_block {
+        let num_sequences = i32::try_from(header.reference_sequences().len())
+            .context("BAM header has too many reference sequences to fit in i32")?;
         let mut end_file = std::io::BufReader::new(
             File::open(input_path).with_context(|| format!("Failed to open {input_path}"))?,
         );
         if let Some(record_offset) =
-            find_first_record_in_block(&mut end_file, end_block_start, buffer)?
+            find_first_record_in_block(&mut end_file, end_block_start, buffer, num_sequences)?
         {
             end_file.seek(SeekFrom::Start(end_block_start))?;
             let mut bgzf_end = bgzf::io::Reader::new(end_file);
@@ -589,23 +604,39 @@ pub fn process_blocks(
     output: &mut dyn Write,
     format: OutputFormat,
 ) -> Result<usize> {
+    // Read header to get actual sequence count for validation
+    let header = read_bam_header(input_path)?;
+    let num_sequences = i32::try_from(header.reference_sequences().len())
+        .context("BAM header has too many reference sequences to fit in i32")?;
     let file = File::open(input_path).with_context(|| format!("Failed to open {input_path}"))?;
     let mut reader = std::io::BufReader::new(file);
 
     let mut current_offset = start_offset;
     let mut buffer = vec![0u8; BGZF_MAX_BLOCK_SIZE + 15];
 
+    // Search forward for a valid block with records, or until we give up
+    let mut blocks_checked = 0;
+    let max_blocks_to_check = 1000;  // Search through up to 1000 blocks
+
     loop {
         let Some(block_start) = find_next_bgzf_block(&mut reader, current_offset, &mut buffer)?
         else {
+            info!("Reached end of file while searching for valid block with records");
             break;
         };
 
         if block_start >= end_offset {
+            info!("Reached end_offset ({end_offset}) while searching for valid block");
             break;
         }
 
-        if let Some(virtual_pos) = validate_block(&mut reader, block_start, &mut buffer)? {
+        blocks_checked += 1;
+        if blocks_checked > max_blocks_to_check {
+            info!("Checked {max_blocks_to_check} blocks without finding one with records. The byte range may not contain any complete BAM records.");
+            break;
+        }
+
+        if let Some(virtual_pos) = validate_block(&mut reader, block_start, &mut buffer, num_sequences)? {
             let aligned_start = virtual_pos >> 16;
             info!(
                 "Processing byte range: {start_offset} to {end_offset} (aligned to block at {aligned_start})"
