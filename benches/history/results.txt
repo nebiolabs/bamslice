@@ -118,3 +118,12 @@ test process_blocks/bam/small_500kb ... bench:  34,828,580 ns/iter (+/- 115,598)
 test process_blocks/bam/medium_1mb ... bench:  69,241,857 ns/iter (+/- 263,235)
 test process_blocks/bam/large_5mb ... bench: 350,556,885 ns/iter (+/- 1,110,880)
 ----------------------------------------
+
+=== 2026-06-11 21:29:06 | ccf1cd2 | main ===
+test process_blocks/fastq/small_500kb ... bench:  16,981,590 ns/iter (+/- 482,373)
+test process_blocks/fastq/medium_1mb ... bench:  33,484,366 ns/iter (+/- 1,100,482)
+test process_blocks/fastq/large_5mb ... bench: 166,775,149 ns/iter (+/- 2,694,203)
+test process_blocks/bam/small_500kb ... bench:  37,169,182 ns/iter (+/- 469,700)
+test process_blocks/bam/medium_1mb ... bench:  73,487,676 ns/iter (+/- 571,030)
+test process_blocks/bam/large_5mb ... bench: 370,670,400 ns/iter (+/- 1,996,657)
+----------------------------------------

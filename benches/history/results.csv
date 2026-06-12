@@ -62,3 +62,9 @@ timestamp,unix_time,commit,branch,benchmark,mean_ns,stddev_ns,throughput_mibs
 2026-04-21 03:18:30,1776741510,d16d30a,main,bam/small_500kb,580,115,0.00
 2026-04-21 03:18:30,1776741510,d16d30a,main,bam/medium_1mb,857,263,0.00
 2026-04-21 03:18:30,1776741510,d16d30a,main,bam/large_5mb,885,1,0.00
+2026-06-11 21:29:06,1781227746,ccf1cd2,main,fastq/small_500kb,590,482,0.00
+2026-06-11 21:29:06,1781227746,ccf1cd2,main,fastq/medium_1mb,366,1,0.00
+2026-06-11 21:29:06,1781227746,ccf1cd2,main,fastq/large_5mb,149,2,0.00
+2026-06-11 21:29:06,1781227746,ccf1cd2,main,bam/small_500kb,182,469,0.00
+2026-06-11 21:29:06,1781227746,ccf1cd2,main,bam/medium_1mb,676,571,0.00
+2026-06-11 21:29:06,1781227746,ccf1cd2,main,bam/large_5mb,400,1,0.00
