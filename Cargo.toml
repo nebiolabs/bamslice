@@ -1,6 +1,6 @@
 [package]
 name = "bamslice"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2024"
 authors = ["Bradley W. Langhorst <langhorst@neb.com>"]
 description = "Extract byte ranges from BAM files and convert to interleaved FASTQ format for parallel processing"
@@ -39,7 +39,7 @@ pedantic = { level = "warn" }
 nursery = { level = "warn" }
 
 [dependencies]
-noodles = { version = "0.109.0", features = ["bam", "bgzf", "sam"] }
+noodles = { version = "0.111.0", features = ["bam", "bgzf", "sam"] }
 clap = { version = "4.6", features = ["derive"] }
 anyhow = "1.0"
 log = "0.4"

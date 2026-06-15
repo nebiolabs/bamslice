@@ -684,3 +684,60 @@ fn test_single_end_whole_file() {
         }
     }
 }
+
+#[test]
+fn test_ref_id_validation_with_false_positive_block() {
+    // Regression test: ref_id validation must use the BAM header's sequence count,
+    // not a loose lower bound.
+    //
+    // Bug: old code accepted any ref_id >= -1. At decompressed offset 234 of the
+    // BGZF block at byte 28651 in the fixture, garbage bytes pass all old checks
+    // (block_size=51911964, ref_id=638721287, nul-terminated read name, etc.).
+    // Old code latches onto that false positive as the record start, then tries to
+    // read a ~51 MB "record" across subsequent blocks, which fails with an IO error.
+    //
+    // New code uses max_ref_id from the BAM header (n_ref=0 for this unmapped file),
+    // so ref_id=638721287 is out of range and rejected.  It correctly finds the real
+    // record at decompressed offset 255 (ref_id=-1) and outputs valid FASTQ.
+    //
+    // Fixture layout (false_positive_ref_id.bam, 111170 bytes):
+    //   0..34      minimal BAM header (n_ref=0)
+    //   34..28651  valid BGZF block with real unmapped reads
+    //   28651..57799  false-positive block: garbage at offset 234 passes old checks,
+    //                 real record at offset 255 (ref_id=-1)
+    //   57799..111170 two more valid blocks + EOF block
+
+    const FIXTURE: &str = "tests/fixtures/false_positive_ref_id.bam";
+    assert!(
+        std::path::Path::new(FIXTURE).exists(),
+        "Test fixture not found: {FIXTURE}"
+    );
+
+    // 28650 = 1 byte before the 
+    // 57799 = start of the next blok
+    let start = 28_650u64;
+    let end = 57_799u64;
+
+    let mut buffer = Vec::new();
+    let record_count = bamslice::process_blocks(FIXTURE, start, end, &mut buffer, OutputFormat::Fastq)
+        .expect("process_blocks must succeed: new code rejects the false positive at offset 234 and uses the real record at offset 255");
+
+    assert!(record_count > 0, "expected at least one valid record from the real reads in the fixture");
+
+    let content = String::from_utf8(buffer).expect("Invalid UTF-8");
+    let fastq_count = count_fastq_reads(&content);
+
+    assert_eq!(
+        record_count, fastq_count,
+        "record_count ({record_count}) must equal FASTQ read count ({fastq_count})"
+    );
+
+    //checks fastq structure
+    for (i, line) in content.lines().enumerate() {
+        if i % 4 == 0 {
+            assert!(line.starts_with('@'), "Invalid FASTQ header at line {i}: {line}");
+        } else if i % 4 == 2 {
+            assert!(line.starts_with('+'), "Invalid FASTQ separator at line {i}: {line}");
+        }
+    }
+}

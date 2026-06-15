@@ -118,3 +118,30 @@ test process_blocks/bam/small_500kb ... bench:  34,828,580 ns/iter (+/- 115,598)
 test process_blocks/bam/medium_1mb ... bench:  69,241,857 ns/iter (+/- 263,235)
 test process_blocks/bam/large_5mb ... bench: 350,556,885 ns/iter (+/- 1,110,880)
 ----------------------------------------
+
+=== 2026-06-12 01:31:15 | ccf1cd2 | main ===
+test process_blocks/fastq/small_500kb ... bench:  15,125,612 ns/iter (+/- 108,918)
+test process_blocks/fastq/medium_1mb ... bench:  30,043,664 ns/iter (+/- 88,243)
+test process_blocks/fastq/large_5mb ... bench: 149,775,906 ns/iter (+/- 1,175,750)
+test process_blocks/bam/small_500kb ... bench:  37,022,603 ns/iter (+/- 55,096)
+test process_blocks/bam/medium_1mb ... bench:  73,911,383 ns/iter (+/- 143,660)
+test process_blocks/bam/large_5mb ... bench: 374,840,583 ns/iter (+/- 384,717)
+----------------------------------------
+
+=== 2026-06-12 01:47:46 | 0b70320 | main ===
+test process_blocks/fastq/small_500kb ... bench:  12,143,486 ns/iter (+/- 378,678)
+test process_blocks/fastq/medium_1mb ... bench:  24,389,645 ns/iter (+/- 425,303)
+test process_blocks/fastq/large_5mb ... bench: 121,176,455 ns/iter (+/- 1,292,631)
+test process_blocks/bam/small_500kb ... bench:  32,383,259 ns/iter (+/- 79,487)
+test process_blocks/bam/medium_1mb ... bench:  64,706,556 ns/iter (+/- 258,253)
+test process_blocks/bam/large_5mb ... bench: 326,964,939 ns/iter (+/- 1,243,207)
+----------------------------------------
+
+=== 2026-06-12 01:51:15 | f2802a1 | main ===
+test process_blocks/fastq/small_500kb ... bench:  16,178,216 ns/iter (+/- 19,359)
+test process_blocks/fastq/medium_1mb ... bench:  32,195,139 ns/iter (+/- 53,252)
+test process_blocks/fastq/large_5mb ... bench: 160,526,034 ns/iter (+/- 1,027,591)
+test process_blocks/bam/small_500kb ... bench:  30,473,893 ns/iter (+/- 424,061)
+test process_blocks/bam/medium_1mb ... bench:  60,832,416 ns/iter (+/- 168,697)
+test process_blocks/bam/large_5mb ... bench: 309,731,698 ns/iter (+/- 409,947)
+----------------------------------------
