@@ -1,0 +1,85 @@
+{
+    "summary": {
+        "fastp_version": "0.23.2",
+        "sequencing": "single end (150 cycles)",
+        "before_filtering": {
+            "total_reads": 2000,
+            "total_bases": 300000,
+            "q20_bases": 280000,
+            "q30_bases": 240000,
+            "q20_rate": 0.9333333333333333,
+            "q30_rate": 0.8,
+            "read1_mean_length": 150,
+            "gc_content": 0.40
+        },
+        "after_filtering": {
+            "total_reads": 1900,
+            "total_bases": 285000,
+            "q20_bases": 270000,
+            "q30_bases": 230000,
+            "q20_rate": 0.9473684210526316,
+            "q30_rate": 0.8070175438596491,
+            "read1_mean_length": 150,
+            "gc_content": 0.40
+        }
+    },
+    "filtering_result": {
+        "passed_filter_reads": 1900,
+        "low_quality_reads": 60,
+        "too_many_N_reads": 20,
+        "too_short_reads": 20,
+        "too_long_reads": 0
+    },
+    "duplication": {
+        "rate": 0.2
+    },
+    "adapter_cutting": {
+        "adapter_trimmed_reads": 400,
+        "adapter_trimmed_bases": 10000,
+        "read1_adapter_sequence": "AGATCGGAAGAGC",
+        "read1_adapter_counts": {
+            "AGATCGGAAGAGC": 300,
+            "AGATCGGAAGAG": 100
+        }
+    },
+    "read1_before_filtering": {
+        "total_reads": 2000,
+        "total_bases": 300000,
+        "q20_bases": 280000,
+        "q30_bases": 240000,
+        "total_cycles": 150,
+        "quality_curves": {
+            "mean": [37.0, 38.0, 39.0]
+        },
+        "content_curves": {
+            "A": [0.25, 0.25, 0.25],
+            "T": [0.25, 0.25, 0.25],
+            "C": [0.25, 0.25, 0.25],
+            "G": [0.25, 0.25, 0.25]
+        },
+        "kmer_count": {
+            "AAAAA": 200,
+            "AAAAC": 100
+        }
+    },
+    "read1_after_filtering": {
+        "total_reads": 1900,
+        "total_bases": 285000,
+        "q20_bases": 270000,
+        "q30_bases": 230000,
+        "total_cycles": 150,
+        "quality_curves": {
+            "mean": [38.0, 39.0, 40.0]
+        },
+        "content_curves": {
+            "A": [0.25, 0.25, 0.25],
+            "T": [0.25, 0.25, 0.25],
+            "C": [0.25, 0.25, 0.25],
+            "G": [0.25, 0.25, 0.25]
+        },
+        "kmer_count": {
+            "AAAAA": 190,
+            "AAAAC": 94
+        }
+    }
+}

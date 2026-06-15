@@ -213,38 +213,30 @@ fn apply_summary_rates(merged: &mut Map<String, Value>, stats: &[Value]) {
         merged.insert("q30_rate".to_string(), Value::from(0.0));
     }
 
-    // Weighted mean lengths (paired-end only; absent for single-end summaries)
-    if total_reads > 0.0
-        && stats
-            .first()
-            .is_some_and(|s| s.get("read1_mean_length").is_some())
-    {
-        let half_reads = total_reads / 2.0;
-        let total_r1: f64 = stats
-            .iter()
-            .filter_map(|s| {
-                let mean = s.get("read1_mean_length")?.as_f64()?;
-                let reads = s.get("total_reads")?.as_f64()?;
-                Some(mean * reads / 2.0)
-            })
-            .sum();
-        let total_r2: f64 = stats
-            .iter()
-            .filter_map(|s| {
-                let mean = s.get("read2_mean_length")?.as_f64()?;
-                let reads = s.get("total_reads")?.as_f64()?;
-                Some(mean * reads / 2.0)
-            })
-            .sum();
-        // Truncation is intentional: fastp stores mean lengths as integers
-        merged.insert(
-            "read1_mean_length".to_string(),
-            Value::from((total_r1 / half_reads) as i64),
-        );
-        merged.insert(
-            "read2_mean_length".to_string(),
-            Value::from((total_r2 / half_reads) as i64),
-        );
+    // Weighted mean read lengths. fastp reports `total_reads` counting both mates
+    // for paired-end data, but that factor is identical across chunks and cancels
+    // in the weighted average, so weighting directly by `total_reads` is correct
+    // for both single- and paired-end. `read2_mean_length` is absent for single-end
+    // summaries, so each field is emitted only when the input actually contains it.
+    if total_reads > 0.0 {
+        for field in &["read1_mean_length", "read2_mean_length"] {
+            if stats.first().and_then(|s| s.get(*field)).is_none() {
+                continue;
+            }
+            let weighted_sum: f64 = stats
+                .iter()
+                .filter_map(|s| {
+                    let mean = s.get(*field)?.as_f64()?;
+                    let reads = s.get("total_reads")?.as_f64()?;
+                    Some(mean * reads)
+                })
+                .sum();
+            // Truncation is intentional: fastp stores mean lengths as integers
+            merged.insert(
+                (*field).to_string(),
+                Value::from((weighted_sum / total_reads) as i64),
+            );
+        }
     }
 
     if total_bases > 0.0 {
@@ -330,36 +322,26 @@ pub fn merge_adapter_cutting(cuttings: &[Value]) -> Value {
     merged.insert("adapter_trimmed_reads".to_string(), Value::from(trimmed_reads));
     merged.insert("adapter_trimmed_bases".to_string(), Value::from(trimmed_bases));
 
-    // Adapter sequences are chunk-invariant; take from the first file
-    let r1_seq = cuttings
-        .first()
-        .and_then(|ac| ac.get("read1_adapter_sequence"))
-        .cloned()
-        .unwrap_or_else(|| Value::from("unspecified"));
-    let r2_seq = cuttings
-        .first()
-        .and_then(|ac| ac.get("read2_adapter_sequence"))
-        .cloned()
-        .unwrap_or_else(|| Value::from("unspecified"));
-    merged.insert("read1_adapter_sequence".to_string(), r1_seq);
-    merged.insert("read2_adapter_sequence".to_string(), r2_seq);
+    // Adapter sequences are chunk-invariant; take from the first file. read2 fields
+    // are absent for single-end data, so each is emitted only when actually present.
+    for field in &["read1_adapter_sequence", "read2_adapter_sequence"] {
+        if let Some(seq) = cuttings.first().and_then(|ac| ac.get(*field)) {
+            merged.insert((*field).to_string(), seq.clone());
+        }
+    }
 
-    let r1_counts: Vec<&Map<String, Value>> = cuttings
-        .iter()
-        .filter_map(|ac| ac.get("read1_adapter_counts")?.as_object())
-        .collect();
-    let r2_counts: Vec<&Map<String, Value>> = cuttings
-        .iter()
-        .filter_map(|ac| ac.get("read2_adapter_counts")?.as_object())
-        .collect();
-    merged.insert(
-        "read1_adapter_counts".to_string(),
-        Value::Object(merge_adapter_counts(&r1_counts)),
-    );
-    merged.insert(
-        "read2_adapter_counts".to_string(),
-        Value::Object(merge_adapter_counts(&r2_counts)),
-    );
+    for field in &["read1_adapter_counts", "read2_adapter_counts"] {
+        if cuttings.iter().any(|ac| ac.get(*field).is_some()) {
+            let counts: Vec<&Map<String, Value>> = cuttings
+                .iter()
+                .filter_map(|ac| ac.get(*field)?.as_object())
+                .collect();
+            merged.insert(
+                (*field).to_string(),
+                Value::Object(merge_adapter_counts(&counts)),
+            );
+        }
+    }
 
     Value::Object(merged)
 }
@@ -417,11 +399,14 @@ pub fn merge_fastp_jsons(data_list: &[Value]) -> Value {
         .collect();
     merged.insert("duplication".to_string(), merge_duplication(&dups, &summaries));
 
-    let insert_sizes: Vec<Value> = data_list
-        .iter()
-        .filter_map(|d| d.get("insert_size").cloned())
-        .collect();
-    merged.insert("insert_size".to_string(), merge_insert_size(&insert_sizes));
+    // insert_size is paired-end only; absent for single-end data.
+    if data_list[0].get("insert_size").is_some() {
+        let insert_sizes: Vec<Value> = data_list
+            .iter()
+            .filter_map(|d| d.get("insert_size").cloned())
+            .collect();
+        merged.insert("insert_size".to_string(), merge_insert_size(&insert_sizes));
+    }
 
     let adapter_cuttings: Vec<Value> = data_list
         .iter()

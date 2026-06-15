@@ -254,3 +254,77 @@ fn test_merge_single_file_is_identity_for_counts() {
     );
     assert_eq!(merged["duplication"]["rate"].as_f64(), Some(0.1));
 }
+
+// ── Single-end integration tests ──────────────────────────────────────────────
+
+#[test]
+fn test_merge_single_end_summary_totals_and_rates() {
+    let c1 = load_fixture("fastp_se_chunk1.json");
+    let c2 = load_fixture("fastp_se_chunk2.json");
+    let merged = merge_fastp_jsons(&[c1, c2]);
+
+    let before = &merged["summary"]["before_filtering"];
+    assert_eq!(before["total_reads"].as_i64(), Some(3000));
+    assert_eq!(before["total_bases"].as_i64(), Some(450_000));
+    assert_eq!(before["q20_bases"].as_i64(), Some(420_000));
+    assert_approx_eq(
+        before["q20_rate"].as_f64().unwrap(),
+        420_000.0 / 450_000.0,
+        "q20_rate",
+    );
+    // gc_content weighted by bases: (0.42*150000 + 0.40*300000) / 450000
+    assert_approx_eq(
+        before["gc_content"].as_f64().unwrap(),
+        183_000.0 / 450_000.0,
+        "gc_content",
+    );
+    assert_eq!(before["read1_mean_length"].as_i64(), Some(150));
+    // read2_mean_length must NOT be fabricated for single-end data
+    assert!(before.get("read2_mean_length").is_none());
+}
+
+#[test]
+fn test_merge_single_end_omits_paired_only_sections() {
+    let c1 = load_fixture("fastp_se_chunk1.json");
+    let c2 = load_fixture("fastp_se_chunk2.json");
+    let merged = merge_fastp_jsons(&[c1, c2]);
+
+    // insert_size is paired-end only and must not appear
+    assert!(merged.get("insert_size").is_none());
+    // No read2 per-read sections
+    assert!(merged.get("read2_before_filtering").is_none());
+    assert!(merged.get("read2_after_filtering").is_none());
+    // read1 sections are still merged
+    assert_eq!(
+        merged["read1_before_filtering"]["total_reads"].as_i64(),
+        Some(3000)
+    );
+}
+
+#[test]
+fn test_merge_single_end_adapter_cutting_has_no_read2_fields() {
+    let c1 = load_fixture("fastp_se_chunk1.json");
+    let c2 = load_fixture("fastp_se_chunk2.json");
+    let merged = merge_fastp_jsons(&[c1, c2]);
+
+    let ac = &merged["adapter_cutting"];
+    assert_eq!(ac["adapter_trimmed_reads"].as_i64(), Some(600));
+    assert_eq!(ac["read1_adapter_counts"]["AGATCGGAAGAGC"].as_i64(), Some(450));
+    // read2 adapter fields must not be fabricated
+    assert!(ac.get("read2_adapter_sequence").is_none());
+    assert!(ac.get("read2_adapter_counts").is_none());
+}
+
+#[test]
+fn test_merge_single_end_duplication_weighted() {
+    let c1 = load_fixture("fastp_se_chunk1.json");
+    let c2 = load_fixture("fastp_se_chunk2.json");
+    let merged = merge_fastp_jsons(&[c1, c2]);
+
+    // rate = (0.1*1000 + 0.2*2000) / 3000 = 500/3000
+    assert_approx_eq(
+        merged["duplication"]["rate"].as_f64().unwrap(),
+        500.0 / 3000.0,
+        "duplication rate",
+    );
+}
