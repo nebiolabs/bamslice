@@ -1,15 +1,52 @@
 //! Merge multiple fastp JSON output files into a single aggregated result,
 //! as if fastp had been run on the entire dataset at once.
+//!
+//! The merge fails loudly: a required field that is missing or has the wrong
+//! type produces an error rather than being silently coerced to zero, so a
+//! malformed input never yields a plausible-but-wrong merged result. Genuinely
+//! optional content (single-end data lacks `read2_*` sections and `insert_size`,
+//! for example) is skipped when absent but still validated when present.
 
+use anyhow::{Context, Result};
 use serde_json::{Map, Value};
+
+/// Extract a required field as `i64`, erroring if it is absent or not an integer.
+fn required_i64(obj: &Value, field: &str) -> Result<i64> {
+    let value = obj
+        .get(field)
+        .with_context(|| format!("missing required field '{field}'"))?;
+    value
+        .as_i64()
+        .with_context(|| format!("field '{field}' is not an integer (found {value})"))
+}
+
+/// Extract a required field as `f64`, erroring if it is absent or not a number.
+fn required_f64(obj: &Value, field: &str) -> Result<f64> {
+    let value = obj
+        .get(field)
+        .with_context(|| format!("missing required field '{field}'"))?;
+    value
+        .as_f64()
+        .with_context(|| format!("field '{field}' is not a number (found {value})"))
+}
+
+/// Coerce an array element to `f64`, erroring if it is not a number.
+fn element_as_f64(value: &Value) -> Result<f64> {
+    value
+        .as_f64()
+        .with_context(|| format!("array contains a non-numeric value ({value})"))
+}
 
 /// Sum arrays element-wise, padding shorter arrays with zero.
 ///
 /// Preserves integer values when all inputs are integers; uses `f64` otherwise.
-#[must_use]
-pub fn sum_arrays(arrays: &[&[Value]]) -> Vec<Value> {
+///
+/// # Errors
+///
+/// Returns an error if any present element is not a number.
+pub fn sum_arrays(arrays: &[&[Value]]) -> Result<Vec<Value>> {
     if arrays.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let max_len = arrays.iter().map(|a| a.len()).max().unwrap_or(0);
 
@@ -24,35 +61,39 @@ pub fn sum_arrays(arrays: &[&[Value]]) -> Vec<Value> {
                 result[i] = result[i].saturating_add(val.as_i64().unwrap_or(0));
             }
         }
-        result.into_iter().map(Value::from).collect()
+        Ok(result.into_iter().map(Value::from).collect())
     } else {
         let mut result = vec![0_f64; max_len];
         for arr in arrays {
             for (i, val) in arr.iter().enumerate() {
-                result[i] += val.as_f64().unwrap_or(0.0);
+                result[i] += element_as_f64(val)?;
             }
         }
-        result.into_iter().map(Value::from).collect()
+        Ok(result.into_iter().map(Value::from).collect())
     }
 }
 
 /// Average arrays element-wise, handling variable-length inputs gracefully.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns an error if any present element is not a number.
 #[allow(clippy::cast_precision_loss)]
-pub fn average_arrays(arrays: &[&[Value]]) -> Vec<Value> {
+pub fn average_arrays(arrays: &[&[Value]]) -> Result<Vec<Value>> {
     if arrays.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let max_len = arrays.iter().map(|a| a.len()).max().unwrap_or(0);
     let mut sums = vec![0_f64; max_len];
     let mut counts = vec![0_usize; max_len];
     for arr in arrays {
         for (i, val) in arr.iter().enumerate() {
-            sums[i] += val.as_f64().unwrap_or(0.0);
+            sums[i] += element_as_f64(val)?;
             counts[i] += 1;
         }
     }
-    sums.iter()
+    Ok(sums
+        .iter()
         .zip(counts.iter())
         .map(|(&sum, &count)| {
             if count > 0 {
@@ -61,61 +102,71 @@ pub fn average_arrays(arrays: &[&[Value]]) -> Vec<Value> {
                 Value::from(0.0)
             }
         })
-        .collect()
+        .collect())
 }
 
 /// Merge kmer count objects by summing counts per kmer.
-#[must_use]
-pub fn merge_kmer_counts(dicts: &[&Map<String, Value>]) -> Map<String, Value> {
+///
+/// Errors if any count is not an integer.
+fn merge_kmer_counts(dicts: &[&Map<String, Value>]) -> Result<Map<String, Value>> {
     let mut merged: Map<String, Value> = Map::new();
     for dict in dicts {
         for (kmer, count) in *dict {
+            let count = count
+                .as_i64()
+                .with_context(|| format!("kmer '{kmer}' count is not an integer (found {count})"))?;
             let existing = merged.get(kmer).and_then(Value::as_i64).unwrap_or(0);
-            merged.insert(
-                kmer.clone(),
-                Value::from(existing + count.as_i64().unwrap_or(0)),
-            );
+            merged.insert(kmer.clone(), Value::from(existing + count));
         }
     }
-    merged
+    Ok(merged)
 }
 
 /// Merge quality or content curve objects by averaging each key's array across chunks.
-#[must_use]
-pub fn merge_curve_maps(curves: &[&Map<String, Value>]) -> Map<String, Value> {
+///
+/// Errors if a curve value present in a chunk is not an array of numbers.
+fn merge_curve_maps(curves: &[&Map<String, Value>]) -> Result<Map<String, Value>> {
     if curves.is_empty() {
-        return Map::new();
+        return Ok(Map::new());
     }
     let mut merged = Map::new();
     for key in curves[0].keys() {
-        let arrays: Vec<&[Value]> = curves
-            .iter()
-            .filter_map(|c| c.get(key)?.as_array().map(Vec::as_slice))
-            .collect();
-        merged.insert(key.clone(), Value::Array(average_arrays(&arrays)));
+        let mut arrays: Vec<&[Value]> = Vec::new();
+        for curve in curves {
+            if let Some(value) = curve.get(key) {
+                let array = value
+                    .as_array()
+                    .with_context(|| format!("curve '{key}' is not an array"))?;
+                arrays.push(array.as_slice());
+            }
+        }
+        let averaged = average_arrays(&arrays).with_context(|| format!("averaging curve '{key}'"))?;
+        merged.insert(key.clone(), Value::Array(averaged));
     }
-    merged
+    Ok(merged)
 }
 
 /// Merge adapter count objects by summing counts per adapter sequence.
-#[must_use]
-pub fn merge_adapter_counts(dicts: &[&Map<String, Value>]) -> Map<String, Value> {
+///
+/// Errors if any count is not an integer.
+fn merge_adapter_counts(dicts: &[&Map<String, Value>]) -> Result<Map<String, Value>> {
     let mut merged: Map<String, Value> = Map::new();
     for dict in dicts {
         for (adapter, count) in *dict {
+            let count = count.as_i64().with_context(|| {
+                format!("adapter '{adapter}' count is not an integer (found {count})")
+            })?;
             let existing = merged.get(adapter).and_then(Value::as_i64).unwrap_or(0);
-            merged.insert(
-                adapter.clone(),
-                Value::from(existing + count.as_i64().unwrap_or(0)),
-            );
+            merged.insert(adapter.clone(), Value::from(existing + count));
         }
     }
-    merged
+    Ok(merged)
 }
 
 /// Merge filtering result objects by summing all count fields.
-#[must_use]
-pub fn merge_filtering_result(results: &[Value]) -> Value {
+///
+/// Errors if any required count field is missing or not an integer.
+fn merge_filtering_result(results: &[Value]) -> Result<Value> {
     const FIELDS: &[&str] = &[
         "passed_filter_reads",
         "low_quality_reads",
@@ -125,28 +176,34 @@ pub fn merge_filtering_result(results: &[Value]) -> Value {
     ];
     let mut merged = Map::new();
     for field in FIELDS {
-        let sum: i64 = results
-            .iter()
-            .filter_map(|r| r.get(*field)?.as_i64())
-            .sum();
+        let mut sum = 0_i64;
+        for (i, result) in results.iter().enumerate() {
+            sum += required_i64(result, field).with_context(|| format!("filtering_result[{i}]"))?;
+        }
         merged.insert((*field).to_string(), Value::from(sum));
     }
-    Value::Object(merged)
+    Ok(Value::Object(merged))
 }
 
 /// Merge insert size objects by summing histograms and recomputing the peak.
-#[must_use]
-pub fn merge_insert_size(sizes: &[Value]) -> Value {
-    let histograms: Vec<&[Value]> = sizes
-        .iter()
-        .filter_map(|s| s.get("histogram")?.as_array().map(Vec::as_slice))
-        .collect();
-    let merged_histogram = sum_arrays(&histograms);
+///
+/// Errors if a histogram or the `unknown` count is missing or malformed.
+fn merge_insert_size(sizes: &[Value]) -> Result<Value> {
+    let mut histograms: Vec<&[Value]> = Vec::new();
+    for (i, size) in sizes.iter().enumerate() {
+        let histogram = size
+            .get("histogram")
+            .with_context(|| format!("insert_size[{i}]: missing 'histogram'"))?
+            .as_array()
+            .with_context(|| format!("insert_size[{i}]: 'histogram' is not an array"))?;
+        histograms.push(histogram.as_slice());
+    }
+    let merged_histogram = sum_arrays(&histograms).context("insert_size histogram")?;
 
-    let unknown: i64 = sizes
-        .iter()
-        .filter_map(|s| s.get("unknown")?.as_i64())
-        .sum();
+    let mut unknown = 0_i64;
+    for (i, size) in sizes.iter().enumerate() {
+        unknown += required_i64(size, "unknown").with_context(|| format!("insert_size[{i}]"))?;
+    }
 
     let peak = merged_histogram
         .iter()
@@ -162,22 +219,27 @@ pub fn merge_insert_size(sizes: &[Value]) -> Value {
     merged.insert("peak".to_string(), Value::from(peak));
     merged.insert("unknown".to_string(), Value::from(unknown));
     merged.insert("histogram".to_string(), Value::Array(merged_histogram));
-    Value::Object(merged)
+    Ok(Value::Object(merged))
 }
 
 /// Compute a weighted-average duplication rate, weighting each chunk by its total read count.
-#[must_use]
-pub fn merge_duplication(dups: &[Value], summaries: &[Value]) -> Value {
+///
+/// Errors if a chunk's duplication rate or its `summary.before_filtering.total_reads`
+/// (the weight) is missing or malformed.
+fn merge_duplication(dups: &[Value], summaries: &[Value]) -> Result<Value> {
     let mut weighted_sum = 0.0_f64;
     let mut total_reads = 0.0_f64;
-    for (dup, summary) in dups.iter().zip(summaries.iter()) {
+    for (i, (dup, summary)) in dups.iter().zip(summaries.iter()).enumerate() {
         let reads = summary
             .get("before_filtering")
             .and_then(|b| b.get("total_reads"))
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0);
-        let rate = dup.get("rate").and_then(Value::as_f64).unwrap_or(0.0);
-        weighted_sum += rate * reads;
+            .with_context(|| {
+                format!("duplication[{i}]: missing summary.before_filtering.total_reads")
+            })?
+            .as_f64()
+            .with_context(|| format!("duplication[{i}]: total_reads is not a number"))?;
+        let rate = required_f64(dup, "rate").with_context(|| format!("duplication[{i}]"))?;
+        weighted_sum = rate.mul_add(reads, weighted_sum);
         total_reads += reads;
     }
     let rate = if total_reads > 0.0 {
@@ -187,13 +249,14 @@ pub fn merge_duplication(dups: &[Value], summaries: &[Value]) -> Value {
     };
     let mut merged = Map::new();
     merged.insert("rate".to_string(), Value::from(rate));
-    Value::Object(merged)
+    Ok(Value::Object(merged))
 }
 
 /// Recalculate derived rate and mean-length fields for a summary section after totals are merged.
 /// Only called for `before_filtering` / `after_filtering` sections, not per-read sections.
 #[allow(clippy::cast_possible_truncation)]
-fn apply_summary_rates(merged: &mut Map<String, Value>, stats: &[Value]) {
+fn apply_summary_rates(merged: &mut Map<String, Value>, stats: &[Value]) -> Result<()> {
+    // total_bases / total_reads were just inserted by the caller as integers.
     let total_bases = merged
         .get("total_bases")
         .and_then(Value::as_f64)
@@ -223,14 +286,13 @@ fn apply_summary_rates(merged: &mut Map<String, Value>, stats: &[Value]) {
             if stats.first().and_then(|s| s.get(*field)).is_none() {
                 continue;
             }
-            let weighted_sum: f64 = stats
-                .iter()
-                .filter_map(|s| {
-                    let mean = s.get(*field)?.as_f64()?;
-                    let reads = s.get("total_reads")?.as_f64()?;
-                    Some(mean * reads)
-                })
-                .sum();
+            let mut weighted_sum = 0.0_f64;
+            for (i, stat) in stats.iter().enumerate() {
+                let mean = required_f64(stat, field).with_context(|| format!("summary[{i}]"))?;
+                let reads =
+                    required_f64(stat, "total_reads").with_context(|| format!("summary[{i}]"))?;
+                weighted_sum = mean.mul_add(reads, weighted_sum);
+            }
             // Truncation is intentional: fastp stores mean lengths as integers
             merged.insert(
                 (*field).to_string(),
@@ -239,13 +301,18 @@ fn apply_summary_rates(merged: &mut Map<String, Value>, stats: &[Value]) {
         }
     }
 
-    if total_bases > 0.0 {
-        let total_gc: f64 = stats
-            .iter()
-            .filter_map(|s| Some(s.get("gc_content")?.as_f64()? * s.get("total_bases")?.as_f64()?))
-            .sum();
+    if total_bases > 0.0 && stats.first().is_some_and(|s| s.get("gc_content").is_some()) {
+        let mut total_gc = 0.0_f64;
+        for (i, stat) in stats.iter().enumerate() {
+            let gc = required_f64(stat, "gc_content").with_context(|| format!("summary[{i}]"))?;
+            let bases =
+                required_f64(stat, "total_bases").with_context(|| format!("summary[{i}]"))?;
+            total_gc = gc.mul_add(bases, total_gc);
+        }
         merged.insert("gc_content".to_string(), Value::from(total_gc / total_bases));
     }
+
+    Ok(())
 }
 
 /// Merge read statistics objects (before/after filtering, or per-read sections).
@@ -255,12 +322,19 @@ fn apply_summary_rates(merged: &mut Map<String, Value>, stats: &[Value]) {
 ///   `total_cycles` is copied from the first chunk; derived rates are not recalculated.
 /// - All other names (e.g. `"before_filtering"`) are summary sections: rates and mean
 ///   lengths are recalculated from the merged totals.
-#[must_use]
-pub fn merge_read_stats(stats: &[Value], stage_name: &str) -> Value {
+///
+/// # Errors
+///
+/// Returns an error if a required count field is missing or not an integer, or if an
+/// optional sub-section (curves, kmer counts) is present but malformed.
+pub fn merge_read_stats(stats: &[Value], stage_name: &str) -> Result<Value> {
     let mut merged = Map::new();
 
     for field in &["total_reads", "total_bases", "q20_bases", "q30_bases"] {
-        let sum: i64 = stats.iter().filter_map(|s| s.get(*field)?.as_i64()).sum();
+        let mut sum = 0_i64;
+        for (i, stat) in stats.iter().enumerate() {
+            sum += required_i64(stat, field).with_context(|| format!("{stage_name}[{i}]"))?;
+        }
         merged.insert((*field).to_string(), Value::from(sum));
     }
 
@@ -269,19 +343,18 @@ pub fn merge_read_stats(stats: &[Value], stage_name: &str) -> Value {
             merged.insert("total_cycles".to_string(), cycles.clone());
         }
     } else {
-        apply_summary_rates(&mut merged, stats);
+        apply_summary_rates(&mut merged, stats)?;
     }
 
-    for (key, section) in &[
-        ("quality_curves", "quality_curves"),
-        ("content_curves", "content_curves"),
-    ] {
+    for section in &["quality_curves", "content_curves"] {
         let maps: Vec<&Map<String, Value>> = stats
             .iter()
             .filter_map(|s| s.get(*section)?.as_object())
             .collect();
         if !maps.is_empty() {
-            merged.insert((*key).to_string(), Value::Object(merge_curve_maps(&maps)));
+            let curves =
+                merge_curve_maps(&maps).with_context(|| format!("{stage_name} {section}"))?;
+            merged.insert((*section).to_string(), Value::Object(curves));
         }
     }
 
@@ -290,10 +363,9 @@ pub fn merge_read_stats(stats: &[Value], stage_name: &str) -> Value {
         .filter_map(|s| s.get("kmer_count")?.as_object())
         .collect();
     if !kmer_counts.is_empty() {
-        merged.insert(
-            "kmer_count".to_string(),
-            Value::Object(merge_kmer_counts(&kmer_counts)),
-        );
+        let merged_kmers =
+            merge_kmer_counts(&kmer_counts).with_context(|| format!("{stage_name} kmer_count"))?;
+        merged.insert("kmer_count".to_string(), Value::Object(merged_kmers));
     }
 
     if stats.iter().any(|s| s.get("overrepresented_sequences").is_some()) {
@@ -303,22 +375,24 @@ pub fn merge_read_stats(stats: &[Value], stage_name: &str) -> Value {
         );
     }
 
-    Value::Object(merged)
+    Ok(Value::Object(merged))
 }
 
 /// Merge adapter cutting objects by summing trimmed counts and merging per-adapter counts.
-#[must_use]
-pub fn merge_adapter_cutting(cuttings: &[Value]) -> Value {
+///
+/// Errors if the trimmed-read/base counts are missing or not integers. read2 fields are
+/// absent for single-end data, so each is emitted only when present (and validated if so).
+fn merge_adapter_cutting(cuttings: &[Value]) -> Result<Value> {
     let mut merged = Map::new();
 
-    let trimmed_reads: i64 = cuttings
-        .iter()
-        .filter_map(|ac| ac.get("adapter_trimmed_reads")?.as_i64())
-        .sum();
-    let trimmed_bases: i64 = cuttings
-        .iter()
-        .filter_map(|ac| ac.get("adapter_trimmed_bases")?.as_i64())
-        .sum();
+    let mut trimmed_reads = 0_i64;
+    let mut trimmed_bases = 0_i64;
+    for (i, cutting) in cuttings.iter().enumerate() {
+        trimmed_reads += required_i64(cutting, "adapter_trimmed_reads")
+            .with_context(|| format!("adapter_cutting[{i}]"))?;
+        trimmed_bases += required_i64(cutting, "adapter_trimmed_bases")
+            .with_context(|| format!("adapter_cutting[{i}]"))?;
+    }
     merged.insert("adapter_trimmed_reads".to_string(), Value::from(trimmed_reads));
     merged.insert("adapter_trimmed_bases".to_string(), Value::from(trimmed_bases));
 
@@ -332,30 +406,56 @@ pub fn merge_adapter_cutting(cuttings: &[Value]) -> Value {
 
     for field in &["read1_adapter_counts", "read2_adapter_counts"] {
         if cuttings.iter().any(|ac| ac.get(*field).is_some()) {
-            let counts: Vec<&Map<String, Value>> = cuttings
-                .iter()
-                .filter_map(|ac| ac.get(*field)?.as_object())
-                .collect();
-            merged.insert(
-                (*field).to_string(),
-                Value::Object(merge_adapter_counts(&counts)),
-            );
+            let mut counts: Vec<&Map<String, Value>> = Vec::new();
+            for (i, cutting) in cuttings.iter().enumerate() {
+                if let Some(value) = cutting.get(*field) {
+                    let object = value
+                        .as_object()
+                        .with_context(|| format!("adapter_cutting[{i}]: '{field}' is not an object"))?;
+                    counts.push(object);
+                }
+            }
+            let merged_counts =
+                merge_adapter_counts(&counts).with_context(|| format!("adapter_cutting {field}"))?;
+            merged.insert((*field).to_string(), Value::Object(merged_counts));
         }
     }
 
-    Value::Object(merged)
+    Ok(Value::Object(merged))
+}
+
+/// Extract a required nested section from every input file, erroring (with the file
+/// index and the dotted path) if any file is missing it.
+fn require_section(data_list: &[Value], keys: &[&str]) -> Result<Vec<Value>> {
+    let mut out = Vec::with_capacity(data_list.len());
+    for (i, data) in data_list.iter().enumerate() {
+        let mut current = data;
+        for key in keys {
+            current = current.get(*key).with_context(|| {
+                format!("file[{i}]: missing required section '{}'", keys.join("."))
+            })?;
+        }
+        out.push(current.clone());
+    }
+    Ok(out)
 }
 
 /// Merge a list of parsed fastp JSON objects into one, as if fastp had processed the whole dataset.
-#[must_use]
-pub fn merge_fastp_jsons(data_list: &[Value]) -> Value {
+///
+/// # Errors
+///
+/// Returns an error if any input file is missing a required section
+/// (`summary.before_filtering`, `summary.after_filtering`, `filtering_result`,
+/// `duplication`, `adapter_cutting`), or if any required numeric field within a
+/// merged section is missing or has a non-numeric value.
+pub fn merge_fastp_jsons(data_list: &[Value]) -> Result<Value> {
     if data_list.is_empty() {
-        return Value::Object(Map::new());
+        return Ok(Value::Object(Map::new()));
     }
 
     let mut merged = Map::new();
 
-    // Summary
+    // Summary: copy chunk-invariant metadata from the first file, merge the rest.
     let mut summary = Map::new();
     if let Some(first_summary) = data_list[0].get("summary") {
         for field in &["fastp_version", "sequencing"] {
@@ -364,60 +464,42 @@ pub fn merge_fastp_jsons(data_list: &[Value]) -> Value {
             }
         }
     }
-    let before: Vec<Value> = data_list
-        .iter()
-        .filter_map(|d| d.get("summary")?.get("before_filtering").cloned())
-        .collect();
-    let after: Vec<Value> = data_list
-        .iter()
-        .filter_map(|d| d.get("summary")?.get("after_filtering").cloned())
-        .collect();
+    let before = require_section(data_list, &["summary", "before_filtering"])?;
+    let after = require_section(data_list, &["summary", "after_filtering"])?;
     summary.insert(
         "before_filtering".to_string(),
-        merge_read_stats(&before, "before_filtering"),
+        merge_read_stats(&before, "before_filtering")?,
     );
     summary.insert(
         "after_filtering".to_string(),
-        merge_read_stats(&after, "after_filtering"),
+        merge_read_stats(&after, "after_filtering")?,
     );
     merged.insert("summary".to_string(), Value::Object(summary));
 
-    // Top-level sections
-    let filtering_results: Vec<Value> = data_list
-        .iter()
-        .filter_map(|d| d.get("filtering_result").cloned())
-        .collect();
-    merged.insert("filtering_result".to_string(), merge_filtering_result(&filtering_results));
+    // Top-level sections present for both single- and paired-end data.
+    let filtering_results = require_section(data_list, &["filtering_result"])?;
+    merged.insert(
+        "filtering_result".to_string(),
+        merge_filtering_result(&filtering_results)?,
+    );
 
-    let dups: Vec<Value> = data_list
-        .iter()
-        .filter_map(|d| d.get("duplication").cloned())
-        .collect();
-    let summaries: Vec<Value> = data_list
-        .iter()
-        .filter_map(|d| d.get("summary").cloned())
-        .collect();
-    merged.insert("duplication".to_string(), merge_duplication(&dups, &summaries));
+    let dups = require_section(data_list, &["duplication"])?;
+    let summaries = require_section(data_list, &["summary"])?;
+    merged.insert("duplication".to_string(), merge_duplication(&dups, &summaries)?);
+
+    let adapter_cuttings = require_section(data_list, &["adapter_cutting"])?;
+    merged.insert(
+        "adapter_cutting".to_string(),
+        merge_adapter_cutting(&adapter_cuttings)?,
+    );
 
     // insert_size is paired-end only; absent for single-end data.
     if data_list[0].get("insert_size").is_some() {
-        let insert_sizes: Vec<Value> = data_list
-            .iter()
-            .filter_map(|d| d.get("insert_size").cloned())
-            .collect();
-        merged.insert("insert_size".to_string(), merge_insert_size(&insert_sizes));
+        let insert_sizes = require_section(data_list, &["insert_size"])?;
+        merged.insert("insert_size".to_string(), merge_insert_size(&insert_sizes)?);
     }
 
-    let adapter_cuttings: Vec<Value> = data_list
-        .iter()
-        .filter_map(|d| d.get("adapter_cutting").cloned())
-        .collect();
-    merged.insert(
-        "adapter_cutting".to_string(),
-        merge_adapter_cutting(&adapter_cuttings),
-    );
-
-    // Per-read sections (only present for paired-end data)
+    // Per-read sections (only present for paired-end data, except read1 for single-end).
     for section in &[
         "read1_before_filtering",
         "read1_after_filtering",
@@ -425,13 +507,10 @@ pub fn merge_fastp_jsons(data_list: &[Value]) -> Value {
         "read2_after_filtering",
     ] {
         if data_list[0].get(*section).is_some() {
-            let values: Vec<Value> = data_list
-                .iter()
-                .filter_map(|d| d.get(*section).cloned())
-                .collect();
-            merged.insert((*section).to_string(), merge_read_stats(&values, section));
+            let values = require_section(data_list, &[section])?;
+            merged.insert((*section).to_string(), merge_read_stats(&values, section)?);
         }
     }
 
-    Value::Object(merged)
+    Ok(Value::Object(merged))
 }

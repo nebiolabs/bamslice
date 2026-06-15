@@ -23,13 +23,13 @@ fn assert_approx_eq(actual: f64, expected: f64, label: &str) {
 fn test_sum_arrays_variable_length() {
     let a = vec![json!(1), json!(2)];
     let b = vec![json!(3), json!(4), json!(5)];
-    let result = sum_arrays(&[a.as_slice(), b.as_slice()]);
+    let result = sum_arrays(&[a.as_slice(), b.as_slice()]).unwrap();
     assert_eq!(result, vec![json!(4), json!(6), json!(5)]);
 }
 
 #[test]
 fn test_sum_arrays_empty() {
-    let result = sum_arrays(&[]);
+    let result = sum_arrays(&[]).unwrap();
     assert!(result.is_empty());
 }
 
@@ -37,7 +37,7 @@ fn test_sum_arrays_empty() {
 fn test_average_arrays_variable_length() {
     let a = vec![json!(10.0)];
     let b = vec![json!(20.0), json!(30.0)];
-    let result = average_arrays(&[a.as_slice(), b.as_slice()]);
+    let result = average_arrays(&[a.as_slice(), b.as_slice()]).unwrap();
     assert_approx_eq(result[0].as_f64().unwrap(), 15.0, "index 0");
     assert_approx_eq(result[1].as_f64().unwrap(), 30.0, "index 1 (only one source)");
 }
@@ -58,7 +58,7 @@ fn test_merge_read_stats_summary_recalculates_rates() {
         "read1_mean_length": 150, "read2_mean_length": 150,
         "gc_content": 0.40
     });
-    let result = merge_read_stats(&[s1, s2], "before_filtering");
+    let result = merge_read_stats(&[s1, s2], "before_filtering").unwrap();
 
     assert_eq!(result["total_reads"].as_i64(), Some(3000));
     assert_eq!(result["total_bases"].as_i64(), Some(450_000));
@@ -78,7 +78,7 @@ fn test_merge_read_stats_summary_recalculates_rates() {
 fn test_merge_read_stats_read_section_preserves_cycles() {
     let s1 = json!({"total_reads": 500, "total_bases": 75000, "q20_bases": 70000, "q30_bases": 60000, "total_cycles": 150});
     let s2 = json!({"total_reads": 500, "total_bases": 75000, "q20_bases": 70000, "q30_bases": 60000, "total_cycles": 150});
-    let result = merge_read_stats(&[s1, s2], "read1_before_filtering");
+    let result = merge_read_stats(&[s1, s2], "read1_before_filtering").unwrap();
 
     assert_eq!(result["total_reads"].as_i64(), Some(1000));
     assert_eq!(result["total_cycles"].as_i64(), Some(150));
@@ -89,7 +89,7 @@ fn test_merge_read_stats_read_section_preserves_cycles() {
 
 #[test]
 fn test_merge_empty_list() {
-    let result = merge_fastp_jsons(&[]);
+    let result = merge_fastp_jsons(&[]).unwrap();
     assert!(result.as_object().unwrap().is_empty());
 }
 
@@ -99,7 +99,7 @@ fn test_merge_empty_list() {
 fn test_merge_two_fixture_files_summary_totals() {
     let c1 = load_fixture("fastp_chunk1.json");
     let c2 = load_fixture("fastp_chunk2.json");
-    let merged = merge_fastp_jsons(&[c1, c2]);
+    let merged = merge_fastp_jsons(&[c1, c2]).expect("merge should succeed");
 
     let before = &merged["summary"]["before_filtering"];
     assert_eq!(before["total_reads"].as_i64(), Some(3000));
@@ -112,7 +112,7 @@ fn test_merge_two_fixture_files_summary_totals() {
 fn test_merge_two_fixture_files_rates_recalculated() {
     let c1 = load_fixture("fastp_chunk1.json");
     let c2 = load_fixture("fastp_chunk2.json");
-    let merged = merge_fastp_jsons(&[c1, c2]);
+    let merged = merge_fastp_jsons(&[c1, c2]).expect("merge should succeed");
 
     let before = &merged["summary"]["before_filtering"];
     assert_approx_eq(
@@ -138,7 +138,7 @@ fn test_merge_two_fixture_files_rates_recalculated() {
 fn test_merge_two_fixture_files_duplication_weighted() {
     let c1 = load_fixture("fastp_chunk1.json");
     let c2 = load_fixture("fastp_chunk2.json");
-    let merged = merge_fastp_jsons(&[c1, c2]);
+    let merged = merge_fastp_jsons(&[c1, c2]).expect("merge should succeed");
 
     // rate = (0.1*1000 + 0.2*2000) / 3000 = 500/3000
     assert_approx_eq(
@@ -152,7 +152,7 @@ fn test_merge_two_fixture_files_duplication_weighted() {
 fn test_merge_two_fixture_files_insert_size() {
     let c1 = load_fixture("fastp_chunk1.json");
     let c2 = load_fixture("fastp_chunk2.json");
-    let merged = merge_fastp_jsons(&[c1, c2]);
+    let merged = merge_fastp_jsons(&[c1, c2]).expect("merge should succeed");
 
     let insert = &merged["insert_size"];
     assert_eq!(insert["unknown"].as_i64(), Some(150));
@@ -167,7 +167,7 @@ fn test_merge_two_fixture_files_insert_size() {
 fn test_merge_two_fixture_files_filtering_result() {
     let c1 = load_fixture("fastp_chunk1.json");
     let c2 = load_fixture("fastp_chunk2.json");
-    let merged = merge_fastp_jsons(&[c1, c2]);
+    let merged = merge_fastp_jsons(&[c1, c2]).expect("merge should succeed");
 
     let fr = &merged["filtering_result"];
     assert_eq!(fr["passed_filter_reads"].as_i64(), Some(2850));
@@ -181,7 +181,7 @@ fn test_merge_two_fixture_files_filtering_result() {
 fn test_merge_two_fixture_files_adapter_cutting() {
     let c1 = load_fixture("fastp_chunk1.json");
     let c2 = load_fixture("fastp_chunk2.json");
-    let merged = merge_fastp_jsons(&[c1, c2]);
+    let merged = merge_fastp_jsons(&[c1, c2]).expect("merge should succeed");
 
     let ac = &merged["adapter_cutting"];
     assert_eq!(ac["adapter_trimmed_reads"].as_i64(), Some(600));
@@ -201,7 +201,7 @@ fn test_merge_two_fixture_files_adapter_cutting() {
 fn test_merge_two_fixture_files_per_read_sections() {
     let c1 = load_fixture("fastp_chunk1.json");
     let c2 = load_fixture("fastp_chunk2.json");
-    let merged = merge_fastp_jsons(&[c1, c2]);
+    let merged = merge_fastp_jsons(&[c1, c2]).expect("merge should succeed");
 
     let r1_before = &merged["read1_before_filtering"];
     assert_eq!(r1_before["total_reads"].as_i64(), Some(1500));
@@ -231,7 +231,7 @@ fn test_merge_two_fixture_files_per_read_sections() {
 fn test_merge_preserves_fastp_version_from_first_file() {
     let c1 = load_fixture("fastp_chunk1.json");
     let c2 = load_fixture("fastp_chunk2.json");
-    let merged = merge_fastp_jsons(&[c1, c2]);
+    let merged = merge_fastp_jsons(&[c1, c2]).expect("merge should succeed");
     assert_eq!(
         merged["summary"]["fastp_version"].as_str(),
         Some("0.23.2")
@@ -241,7 +241,7 @@ fn test_merge_preserves_fastp_version_from_first_file() {
 #[test]
 fn test_merge_single_file_is_identity_for_counts() {
     let c1 = load_fixture("fastp_chunk1.json");
-    let merged = merge_fastp_jsons(&[c1]);
+    let merged = merge_fastp_jsons(&[c1]).expect("merge should succeed");
 
     let before = &merged["summary"]["before_filtering"];
     assert_eq!(before["total_reads"].as_i64(), Some(1000));
@@ -261,7 +261,7 @@ fn test_merge_single_file_is_identity_for_counts() {
 fn test_merge_single_end_summary_totals_and_rates() {
     let c1 = load_fixture("fastp_se_chunk1.json");
     let c2 = load_fixture("fastp_se_chunk2.json");
-    let merged = merge_fastp_jsons(&[c1, c2]);
+    let merged = merge_fastp_jsons(&[c1, c2]).expect("merge should succeed");
 
     let before = &merged["summary"]["before_filtering"];
     assert_eq!(before["total_reads"].as_i64(), Some(3000));
@@ -287,7 +287,7 @@ fn test_merge_single_end_summary_totals_and_rates() {
 fn test_merge_single_end_omits_paired_only_sections() {
     let c1 = load_fixture("fastp_se_chunk1.json");
     let c2 = load_fixture("fastp_se_chunk2.json");
-    let merged = merge_fastp_jsons(&[c1, c2]);
+    let merged = merge_fastp_jsons(&[c1, c2]).expect("merge should succeed");
 
     // insert_size is paired-end only and must not appear
     assert!(merged.get("insert_size").is_none());
@@ -305,7 +305,7 @@ fn test_merge_single_end_omits_paired_only_sections() {
 fn test_merge_single_end_adapter_cutting_has_no_read2_fields() {
     let c1 = load_fixture("fastp_se_chunk1.json");
     let c2 = load_fixture("fastp_se_chunk2.json");
-    let merged = merge_fastp_jsons(&[c1, c2]);
+    let merged = merge_fastp_jsons(&[c1, c2]).expect("merge should succeed");
 
     let ac = &merged["adapter_cutting"];
     assert_eq!(ac["adapter_trimmed_reads"].as_i64(), Some(600));
@@ -319,7 +319,7 @@ fn test_merge_single_end_adapter_cutting_has_no_read2_fields() {
 fn test_merge_single_end_duplication_weighted() {
     let c1 = load_fixture("fastp_se_chunk1.json");
     let c2 = load_fixture("fastp_se_chunk2.json");
-    let merged = merge_fastp_jsons(&[c1, c2]);
+    let merged = merge_fastp_jsons(&[c1, c2]).expect("merge should succeed");
 
     // rate = (0.1*1000 + 0.2*2000) / 3000 = 500/3000
     assert_approx_eq(
@@ -327,4 +327,51 @@ fn test_merge_single_end_duplication_weighted() {
         500.0 / 3000.0,
         "duplication rate",
     );
+}
+
+// ── Failure-path tests: malformed input must error, not coerce silently ───────
+
+#[test]
+fn test_merge_errors_on_missing_required_section() {
+    // A file with no summary section at all.
+    let bad = json!({"filtering_result": {}});
+    let err = merge_fastp_jsons(&[bad]).unwrap_err();
+    let message = format!("{err:#}");
+    assert!(
+        message.contains("summary.before_filtering"),
+        "error should name the missing section, got: {message}"
+    );
+}
+
+#[test]
+fn test_merge_read_stats_errors_on_missing_count_field() {
+    // total_bases is absent — a required count field.
+    let s1 = json!({"total_reads": 1000, "q20_bases": 140_000, "q30_bases": 120_000});
+    let err = merge_read_stats(&[s1], "before_filtering").unwrap_err();
+    let message = format!("{err:#}");
+    assert!(
+        message.contains("total_bases"),
+        "error should name the missing field, got: {message}"
+    );
+}
+
+#[test]
+fn test_merge_read_stats_errors_on_non_numeric_count() {
+    // total_reads is present but not an integer.
+    let s1 = json!({
+        "total_reads": "lots", "total_bases": 150_000,
+        "q20_bases": 140_000, "q30_bases": 120_000
+    });
+    let err = merge_read_stats(&[s1], "before_filtering").unwrap_err();
+    let message = format!("{err:#}");
+    assert!(
+        message.contains("total_reads"),
+        "error should name the offending field, got: {message}"
+    );
+}
+
+#[test]
+fn test_sum_arrays_errors_on_non_numeric_element() {
+    let a = vec![json!(1), json!("not a number")];
+    assert!(sum_arrays(&[a.as_slice()]).is_err());
 }

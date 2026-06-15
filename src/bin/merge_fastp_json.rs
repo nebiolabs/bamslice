@@ -35,7 +35,8 @@ fn main() -> Result<()> {
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let merged = bamslice::fastp_merge::merge_fastp_jsons(&data_list);
+    let merged = bamslice::fastp_merge::merge_fastp_jsons(&data_list)
+        .context("Failed to merge fastp JSON files")?;
     let json_str = serde_json::to_string_pretty(&merged)?;
 
     if let Some(ref path) = args.output {
