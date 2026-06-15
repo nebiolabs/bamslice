@@ -296,11 +296,13 @@ where
     // There is no alignment guarantee for records within the block.
     for i in 0..bytes_read - 36 {
         if is_valid_record_start(&buffer[i..], bytes_read - i, max_ref_id) {
-            let block_size = i32::from_le_bytes(buffer[i..i+4].try_into().unwrap());
-            let ref_id = i32::from_le_bytes(buffer[i+4..i+8].try_into().unwrap());
-            let pos = i32::from_le_bytes(buffer[i+8..i+12].try_into().unwrap());
-            let l_read_name = buffer[i+12];
-            debug!("Found candidate record at offset {i}: block_size={block_size}, ref_id={ref_id}, pos={pos}, l_read_name={l_read_name}");
+            let block_size = i32::from_le_bytes(buffer[i..i + 4].try_into().unwrap());
+            let ref_id = i32::from_le_bytes(buffer[i + 4..i + 8].try_into().unwrap());
+            let pos = i32::from_le_bytes(buffer[i + 8..i + 12].try_into().unwrap());
+            let l_read_name = buffer[i + 12];
+            debug!(
+                "Found candidate record at offset {i}: block_size={block_size}, ref_id={ref_id}, pos={pos}, l_read_name={l_read_name}"
+            );
             return Ok(Some(i as u64));
         }
     }
@@ -618,7 +620,7 @@ pub fn process_blocks(
 
     // Search forward for a valid block with records, or until we give up
     let mut blocks_checked = 0;
-    let max_blocks_to_check = 1000;  // Search through up to 1000 blocks
+    let max_blocks_to_check = 1000; // Search through up to 1000 blocks
 
     loop {
         let Some(block_start) = find_next_bgzf_block(&mut reader, current_offset, &mut buffer)?
@@ -634,11 +636,15 @@ pub fn process_blocks(
 
         blocks_checked += 1;
         if blocks_checked > max_blocks_to_check {
-            info!("Checked {max_blocks_to_check} blocks without finding one with records. The byte range may not contain any complete BAM records.");
+            info!(
+                "Checked {max_blocks_to_check} blocks without finding one with records. The byte range may not contain any complete BAM records."
+            );
             break;
         }
 
-        if let Some(virtual_pos) = validate_block(&mut reader, block_start, &mut buffer, num_sequences)? {
+        if let Some(virtual_pos) =
+            validate_block(&mut reader, block_start, &mut buffer, num_sequences)?
+        {
             let aligned_start = virtual_pos >> 16;
             info!(
                 "Processing byte range: {start_offset} to {end_offset} (aligned to block at {aligned_start})"

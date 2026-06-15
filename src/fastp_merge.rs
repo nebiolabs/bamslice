@@ -112,9 +112,9 @@ fn merge_kmer_counts(dicts: &[&Map<String, Value>]) -> Result<Map<String, Value>
     let mut merged: Map<String, Value> = Map::new();
     for dict in dicts {
         for (kmer, count) in *dict {
-            let count = count
-                .as_i64()
-                .with_context(|| format!("kmer '{kmer}' count is not an integer (found {count})"))?;
+            let count = count.as_i64().with_context(|| {
+                format!("kmer '{kmer}' count is not an integer (found {count})")
+            })?;
             let existing = merged.get(kmer).and_then(Value::as_i64).unwrap_or(0);
             merged.insert(kmer.clone(), Value::from(existing + count));
         }
@@ -140,7 +140,8 @@ fn merge_curve_maps(curves: &[&Map<String, Value>]) -> Result<Map<String, Value>
                 arrays.push(array.as_slice());
             }
         }
-        let averaged = average_arrays(&arrays).with_context(|| format!("averaging curve '{key}'"))?;
+        let averaged =
+            average_arrays(&arrays).with_context(|| format!("averaging curve '{key}'"))?;
         merged.insert(key.clone(), Value::Array(averaged));
     }
     Ok(merged)
@@ -267,8 +268,14 @@ fn apply_summary_rates(merged: &mut Map<String, Value>, stats: &[Value]) -> Resu
         .unwrap_or(0.0);
 
     if total_bases > 0.0 {
-        let q20 = merged.get("q20_bases").and_then(Value::as_f64).unwrap_or(0.0);
-        let q30 = merged.get("q30_bases").and_then(Value::as_f64).unwrap_or(0.0);
+        let q20 = merged
+            .get("q20_bases")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let q30 = merged
+            .get("q30_bases")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
         merged.insert("q20_rate".to_string(), Value::from(q20 / total_bases));
         merged.insert("q30_rate".to_string(), Value::from(q30 / total_bases));
     } else {
@@ -309,7 +316,10 @@ fn apply_summary_rates(merged: &mut Map<String, Value>, stats: &[Value]) -> Resu
                 required_f64(stat, "total_bases").with_context(|| format!("summary[{i}]"))?;
             total_gc = gc.mul_add(bases, total_gc);
         }
-        merged.insert("gc_content".to_string(), Value::from(total_gc / total_bases));
+        merged.insert(
+            "gc_content".to_string(),
+            Value::from(total_gc / total_bases),
+        );
     }
 
     Ok(())
@@ -368,7 +378,10 @@ pub fn merge_read_stats(stats: &[Value], stage_name: &str) -> Result<Value> {
         merged.insert("kmer_count".to_string(), Value::Object(merged_kmers));
     }
 
-    if stats.iter().any(|s| s.get("overrepresented_sequences").is_some()) {
+    if stats
+        .iter()
+        .any(|s| s.get("overrepresented_sequences").is_some())
+    {
         merged.insert(
             "overrepresented_sequences".to_string(),
             Value::Object(Map::new()),
@@ -393,8 +406,14 @@ fn merge_adapter_cutting(cuttings: &[Value]) -> Result<Value> {
         trimmed_bases += required_i64(cutting, "adapter_trimmed_bases")
             .with_context(|| format!("adapter_cutting[{i}]"))?;
     }
-    merged.insert("adapter_trimmed_reads".to_string(), Value::from(trimmed_reads));
-    merged.insert("adapter_trimmed_bases".to_string(), Value::from(trimmed_bases));
+    merged.insert(
+        "adapter_trimmed_reads".to_string(),
+        Value::from(trimmed_reads),
+    );
+    merged.insert(
+        "adapter_trimmed_bases".to_string(),
+        Value::from(trimmed_bases),
+    );
 
     // Adapter sequences are chunk-invariant; take from the first file. read2 fields
     // are absent for single-end data, so each is emitted only when actually present.
@@ -409,14 +428,14 @@ fn merge_adapter_cutting(cuttings: &[Value]) -> Result<Value> {
             let mut counts: Vec<&Map<String, Value>> = Vec::new();
             for (i, cutting) in cuttings.iter().enumerate() {
                 if let Some(value) = cutting.get(*field) {
-                    let object = value
-                        .as_object()
-                        .with_context(|| format!("adapter_cutting[{i}]: '{field}' is not an object"))?;
+                    let object = value.as_object().with_context(|| {
+                        format!("adapter_cutting[{i}]: '{field}' is not an object")
+                    })?;
                     counts.push(object);
                 }
             }
-            let merged_counts =
-                merge_adapter_counts(&counts).with_context(|| format!("adapter_cutting {field}"))?;
+            let merged_counts = merge_adapter_counts(&counts)
+                .with_context(|| format!("adapter_cutting {field}"))?;
             merged.insert((*field).to_string(), Value::Object(merged_counts));
         }
     }
@@ -485,7 +504,10 @@ pub fn merge_fastp_jsons(data_list: &[Value]) -> Result<Value> {
 
     let dups = require_section(data_list, &["duplication"])?;
     let summaries = require_section(data_list, &["summary"])?;
-    merged.insert("duplication".to_string(), merge_duplication(&dups, &summaries)?);
+    merged.insert(
+        "duplication".to_string(),
+        merge_duplication(&dups, &summaries)?,
+    );
 
     let adapter_cuttings = require_section(data_list, &["adapter_cutting"])?;
     merged.insert(

@@ -713,7 +713,7 @@ fn test_ref_id_validation_with_false_positive_block() {
         "Test fixture not found: {FIXTURE}"
     );
 
-    // 28650 = 1 byte before the 
+    // 28650 = 1 byte before the
     // 57799 = start of the next blok
     let start = 28_650u64;
     let end = 57_799u64;
@@ -722,7 +722,10 @@ fn test_ref_id_validation_with_false_positive_block() {
     let record_count = bamslice::process_blocks(FIXTURE, start, end, &mut buffer, OutputFormat::Fastq)
         .expect("process_blocks must succeed: new code rejects the false positive at offset 234 and uses the real record at offset 255");
 
-    assert!(record_count > 0, "expected at least one valid record from the real reads in the fixture");
+    assert!(
+        record_count > 0,
+        "expected at least one valid record from the real reads in the fixture"
+    );
 
     let content = String::from_utf8(buffer).expect("Invalid UTF-8");
     let fastq_count = count_fastq_reads(&content);
@@ -735,9 +738,15 @@ fn test_ref_id_validation_with_false_positive_block() {
     //checks fastq structure
     for (i, line) in content.lines().enumerate() {
         if i % 4 == 0 {
-            assert!(line.starts_with('@'), "Invalid FASTQ header at line {i}: {line}");
+            assert!(
+                line.starts_with('@'),
+                "Invalid FASTQ header at line {i}: {line}"
+            );
         } else if i % 4 == 2 {
-            assert!(line.starts_with('+'), "Invalid FASTQ separator at line {i}: {line}");
+            assert!(
+                line.starts_with('+'),
+                "Invalid FASTQ separator at line {i}: {line}"
+            );
         }
     }
 }
