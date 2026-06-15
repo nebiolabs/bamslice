@@ -1,12 +1,11 @@
 use bamslice::fastp_merge::{average_arrays, merge_fastp_jsons, merge_read_stats, sum_arrays};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::fs;
 
 fn load_fixture(name: &str) -> Value {
     let path = format!("tests/fixtures/{name}");
     let content = fs::read_to_string(&path).unwrap_or_else(|e| panic!("Cannot read {path}: {e}"));
-    serde_json::from_str(&content)
-        .unwrap_or_else(|e| panic!("Cannot parse JSON from {path}: {e}"))
+    serde_json::from_str(&content).unwrap_or_else(|e| panic!("Cannot parse JSON from {path}: {e}"))
 }
 
 fn assert_approx_eq(actual: f64, expected: f64, label: &str) {
@@ -39,7 +38,11 @@ fn test_average_arrays_variable_length() {
     let b = vec![json!(20.0), json!(30.0)];
     let result = average_arrays(&[a.as_slice(), b.as_slice()]).unwrap();
     assert_approx_eq(result[0].as_f64().unwrap(), 15.0, "index 0");
-    assert_approx_eq(result[1].as_f64().unwrap(), 30.0, "index 1 (only one source)");
+    assert_approx_eq(
+        result[1].as_f64().unwrap(),
+        30.0,
+        "index 1 (only one source)",
+    );
 }
 
 #[test]
@@ -64,10 +67,22 @@ fn test_merge_read_stats_summary_recalculates_rates() {
     assert_eq!(result["total_bases"].as_i64(), Some(450_000));
     assert_eq!(result["q20_bases"].as_i64(), Some(420_000));
     // q20_rate = 420000/450000
-    assert_approx_eq(result["q20_rate"].as_f64().unwrap(), 420_000.0 / 450_000.0, "q20_rate");
-    assert_approx_eq(result["q30_rate"].as_f64().unwrap(), 360_000.0 / 450_000.0, "q30_rate");
+    assert_approx_eq(
+        result["q20_rate"].as_f64().unwrap(),
+        420_000.0 / 450_000.0,
+        "q20_rate",
+    );
+    assert_approx_eq(
+        result["q30_rate"].as_f64().unwrap(),
+        360_000.0 / 450_000.0,
+        "q30_rate",
+    );
     // gc_content = (0.42*150000 + 0.40*300000) / 450000
-    assert_approx_eq(result["gc_content"].as_f64().unwrap(), 183_000.0 / 450_000.0, "gc_content");
+    assert_approx_eq(
+        result["gc_content"].as_f64().unwrap(),
+        183_000.0 / 450_000.0,
+        "gc_content",
+    );
     assert_eq!(result["read1_mean_length"].as_i64(), Some(150));
     assert_eq!(result["read2_mean_length"].as_i64(), Some(150));
     // total_cycles must NOT be present in summary sections
@@ -232,10 +247,7 @@ fn test_merge_preserves_fastp_version_from_first_file() {
     let c1 = load_fixture("fastp_chunk1.json");
     let c2 = load_fixture("fastp_chunk2.json");
     let merged = merge_fastp_jsons(&[c1, c2]).expect("merge should succeed");
-    assert_eq!(
-        merged["summary"]["fastp_version"].as_str(),
-        Some("0.23.2")
-    );
+    assert_eq!(merged["summary"]["fastp_version"].as_str(), Some("0.23.2"));
 }
 
 #[test]
@@ -309,7 +321,10 @@ fn test_merge_single_end_adapter_cutting_has_no_read2_fields() {
 
     let ac = &merged["adapter_cutting"];
     assert_eq!(ac["adapter_trimmed_reads"].as_i64(), Some(600));
-    assert_eq!(ac["read1_adapter_counts"]["AGATCGGAAGAGC"].as_i64(), Some(450));
+    assert_eq!(
+        ac["read1_adapter_counts"]["AGATCGGAAGAGC"].as_i64(),
+        Some(450)
+    );
     // read2 adapter fields must not be fabricated
     assert!(ac.get("read2_adapter_sequence").is_none());
     assert!(ac.get("read2_adapter_counts").is_none());
