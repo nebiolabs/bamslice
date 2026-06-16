@@ -562,9 +562,7 @@ fn python_float_repr(f: f64) -> String {
     let (mantissa, exp_str) = sci
         .split_once('e')
         .expect("lower-exp format always contains 'e'");
-    let exp: i32 = exp_str
-        .parse()
-        .expect("lower-exp exponent is an integer");
+    let exp: i32 = exp_str.parse().expect("lower-exp exponent is an integer");
 
     let negative = mantissa.starts_with('-');
     let mant = mantissa.trim_start_matches('-');
@@ -660,7 +658,13 @@ fn write_kmer_count(map: &Map<String, Value>, depth: usize, out: &mut String) ->
     }
     let entries: Vec<String> = map
         .iter()
-        .map(|(k, v)| Ok(format!("{}: {}", serde_json::to_string(k)?, format_number_value(v))))
+        .map(|(k, v)| {
+            Ok(format!(
+                "{}: {}",
+                serde_json::to_string(k)?,
+                format_number_value(v)
+            ))
+        })
         .collect::<Result<_>>()?;
 
     out.push_str("{\n");

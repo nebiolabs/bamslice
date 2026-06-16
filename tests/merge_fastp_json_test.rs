@@ -430,7 +430,11 @@ fn test_format_kmer_count_matrix_16_per_line() {
     // Opening key line, two entry lines (16 + 2), closing brace.
     assert_eq!(lines[0], "{");
     assert_eq!(lines[1], "\t\"kmer_count\": {");
-    assert_eq!(lines[2].matches("\"KMER").count(), 16, "first line has 16 entries");
+    assert_eq!(
+        lines[2].matches("\"KMER").count(),
+        16,
+        "first line has 16 entries"
+    );
     assert!(lines[2].starts_with("\t\t\"KMER00\": 0,\t\t\t\"KMER01\": 1,"));
     assert!(lines[2].ends_with(',')); // more entries follow
     assert!(lines[3].starts_with("\t\t\"KMER16\": 16,\t\t\t\"KMER17\": 17"));
