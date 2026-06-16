@@ -37,7 +37,10 @@ fn main() -> Result<()> {
 
     let merged = bamslice::fastp_merge::merge_fastp_jsons(&data_list)
         .context("Failed to merge fastp JSON files")?;
-    let json_str = serde_json::to_string_pretty(&merged)?;
+    // Lay the output out exactly like fastp's own JSON writer (tab indent,
+    // single-line arrays, 16-per-line kmer_count matrix).
+    let json_str = bamslice::fastp_merge::format_fastp_json(&merged)
+        .context("Failed to format merged JSON")?;
 
     if let Some(ref path) = args.output {
         let file = fs::File::create(path)

@@ -509,17 +509,18 @@ pub fn merge_fastp_jsons(data_list: &[Value]) -> Result<Value> {
         merge_duplication(&dups, &summaries)?,
     );
 
+    // insert_size is paired-end only; absent for single-end data. Emitted before
+    // adapter_cutting to match fastp's own top-level key ordering.
+    if data_list[0].get("insert_size").is_some() {
+        let insert_sizes = require_section(data_list, &["insert_size"])?;
+        merged.insert("insert_size".to_string(), merge_insert_size(&insert_sizes)?);
+    }
+
     let adapter_cuttings = require_section(data_list, &["adapter_cutting"])?;
     merged.insert(
         "adapter_cutting".to_string(),
         merge_adapter_cutting(&adapter_cuttings)?,
     );
-
-    // insert_size is paired-end only; absent for single-end data.
-    if data_list[0].get("insert_size").is_some() {
-        let insert_sizes = require_section(data_list, &["insert_size"])?;
-        merged.insert("insert_size".to_string(), merge_insert_size(&insert_sizes)?);
-    }
 
     // Per-read sections (only present for paired-end data, except read1 for single-end).
     for section in &[
@@ -535,4 +536,235 @@ pub fn merge_fastp_jsons(data_list: &[Value]) -> Result<Value> {
     }
 
     Ok(Value::Object(merged))
+}
+
+/// Format an `f64` exactly as `CPython`'s `repr`/`json.dumps` would.
+///
+/// fastp's reference output is produced by a Python script, so reproducing its
+/// bytes means matching Python's float formatting: the shortest round-tripping
+/// digit sequence (which Rust's lower-exp formatter also yields), switched to
+/// scientific notation when the decimal point falls at position `<= -4` or `> 16`,
+/// with the exponent sign always present and zero-padded to at least two digits.
+fn python_float_repr(f: f64) -> String {
+    if f == 0.0 {
+        return if f.is_sign_negative() { "-0.0" } else { "0.0" }.to_string();
+    }
+    if f.is_nan() {
+        return "NaN".to_string();
+    }
+    if f.is_infinite() {
+        return if f < 0.0 { "-Infinity" } else { "Infinity" }.to_string();
+    }
+
+    // Rust's lower-exponential formatter gives the shortest round-tripping mantissa
+    // plus an exponent, e.g. "1.8583343333333333e-5" or "3.645766666666666e1".
+    let sci = format!("{f:e}");
+    let (mantissa, exp_str) = sci
+        .split_once('e')
+        .expect("lower-exp format always contains 'e'");
+    let exp: i32 = exp_str
+        .parse()
+        .expect("lower-exp exponent is an integer");
+
+    let negative = mantissa.starts_with('-');
+    let mant = mantissa.trim_start_matches('-');
+    let digits: String = mant.chars().filter(|&c| c != '.').collect();
+    let ndigits = i32::try_from(digits.len()).unwrap_or(i32::MAX);
+
+    // Position of the decimal point relative to the start of `digits`.
+    let decpt = exp + 1;
+
+    let mut out = String::new();
+    if negative {
+        out.push('-');
+    }
+
+    if decpt <= -4 || decpt > 16 {
+        // Scientific notation: d.ddde±XX
+        out.push_str(&digits[..1]);
+        if digits.len() > 1 {
+            out.push('.');
+            out.push_str(&digits[1..]);
+        }
+        let e = decpt - 1;
+        out.push('e');
+        out.push(if e < 0 { '-' } else { '+' });
+        let magnitude = e.abs();
+        if magnitude < 10 {
+            out.push('0');
+        }
+        out.push_str(&magnitude.to_string());
+    } else if decpt <= 0 {
+        out.push_str("0.");
+        for _ in 0..-decpt {
+            out.push('0');
+        }
+        out.push_str(&digits);
+    } else if decpt >= ndigits {
+        out.push_str(&digits);
+        for _ in 0..(decpt - ndigits) {
+            out.push('0');
+        }
+        out.push_str(".0");
+    } else {
+        let split = usize::try_from(decpt).unwrap_or(0);
+        out.push_str(&digits[..split]);
+        out.push('.');
+        out.push_str(&digits[split..]);
+    }
+
+    out
+}
+
+/// Format a JSON number, preserving integers verbatim and rendering floats à la Python.
+fn format_number(n: &serde_json::Number) -> String {
+    if n.is_i64() || n.is_u64() {
+        n.to_string()
+    } else if let Some(f) = n.as_f64() {
+        python_float_repr(f)
+    } else {
+        n.to_string()
+    }
+}
+
+/// Append one indentation level (`depth` tabs) to `out`.
+fn push_indent(out: &mut String, depth: usize) {
+    for _ in 0..depth {
+        out.push('\t');
+    }
+}
+
+/// Write an array compacted onto a single line: `[v,v,v]`, no interior whitespace.
+/// fastp arrays are numeric; any non-number element is written compactly as well.
+fn write_array(arr: &[Value], out: &mut String) -> Result<()> {
+    out.push('[');
+    for (i, v) in arr.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        match v {
+            Value::Number(n) => out.push_str(&format_number(n)),
+            other => write_value(other, 0, out)?,
+        }
+    }
+    out.push(']');
+    Ok(())
+}
+
+/// Write a `kmer_count` object as a matrix of 16 `"KMER": count` entries per line,
+/// matching fastp's layout. `depth` is the indentation of the enclosing braces.
+fn write_kmer_count(map: &Map<String, Value>, depth: usize, out: &mut String) -> Result<()> {
+    if map.is_empty() {
+        out.push_str("{}");
+        return Ok(());
+    }
+    let entries: Vec<String> = map
+        .iter()
+        .map(|(k, v)| Ok(format!("{}: {}", serde_json::to_string(k)?, format_number_value(v))))
+        .collect::<Result<_>>()?;
+
+    out.push_str("{\n");
+    let mut i = 0;
+    while i < entries.len() {
+        let end = (i + 16).min(entries.len());
+        push_indent(out, depth + 1);
+        out.push_str(&entries[i..end].join(",\t\t\t"));
+        if end < entries.len() {
+            out.push(',');
+        }
+        out.push('\n');
+        i += 16;
+    }
+    push_indent(out, depth);
+    out.push('}');
+    Ok(())
+}
+
+/// Format a `Value` known to be a number (kmer counts are always integers).
+fn format_number_value(v: &Value) -> String {
+    match v {
+        Value::Number(n) => format_number(n),
+        other => other.to_string(),
+    }
+}
+
+/// Write an object across multiple lines with tab indentation. Array-valued members
+/// get no space after the colon (`"key":[...]`) to match fastp; everything else does.
+fn write_object(map: &Map<String, Value>, depth: usize, out: &mut String) -> Result<()> {
+    if map.is_empty() {
+        out.push_str("{}");
+        return Ok(());
+    }
+    out.push_str("{\n");
+    let n = map.len();
+    for (i, (k, v)) in map.iter().enumerate() {
+        push_indent(out, depth + 1);
+        out.push_str(&serde_json::to_string(k)?);
+        match v {
+            Value::Array(arr) => {
+                out.push(':');
+                write_array(arr, out)?;
+            }
+            Value::Object(obj) if k == "kmer_count" => {
+                out.push_str(": ");
+                write_kmer_count(obj, depth + 1, out)?;
+            }
+            _ => {
+                out.push_str(": ");
+                write_value(v, depth + 1, out)?;
+            }
+        }
+        if i + 1 < n {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    push_indent(out, depth);
+    out.push('}');
+    Ok(())
+}
+
+/// Recursively write a `Value` in fastp's JSON layout.
+fn write_value(value: &Value, depth: usize, out: &mut String) -> Result<()> {
+    match value {
+        Value::Object(map) => write_object(map, depth, out),
+        Value::Array(arr) => write_array(arr, out),
+        Value::String(_) => {
+            out.push_str(&serde_json::to_string(value)?);
+            Ok(())
+        }
+        Value::Number(n) => {
+            out.push_str(&format_number(n));
+            Ok(())
+        }
+        Value::Bool(b) => {
+            out.push_str(if *b { "true" } else { "false" });
+            Ok(())
+        }
+        Value::Null => {
+            out.push_str("null");
+            Ok(())
+        }
+    }
+}
+
+/// Serialize a merged fastp value to match fastp's own JSON layout byte-for-byte.
+///
+/// Objects are pretty-printed with tab indentation, arrays are compacted onto a
+/// single line with no interior whitespace and no space after the colon
+/// (`"histogram":[1,2,3]`), `kmer_count` maps are laid out as a matrix of 16 entries
+/// per line, and floats are formatted exactly as `CPython`'s `repr` would. This
+/// reproduces the upstream Python merge script's output so the result diffs cleanly
+/// against the original tool.
+///
+/// The returned string has no trailing newline; callers append one (matching the
+/// Python script's final `print`).
+///
+/// # Errors
+///
+/// Returns an error if a key or string value cannot be serialized.
+pub fn format_fastp_json(value: &Value) -> Result<String> {
+    let mut out = String::new();
+    write_value(value, 0, &mut out)?;
+    Ok(out)
 }

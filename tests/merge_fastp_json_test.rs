@@ -1,4 +1,6 @@
-use bamslice::fastp_merge::{average_arrays, merge_fastp_jsons, merge_read_stats, sum_arrays};
+use bamslice::fastp_merge::{
+    average_arrays, format_fastp_json, merge_fastp_jsons, merge_read_stats, sum_arrays,
+};
 use serde_json::{Value, json};
 use std::fs;
 
@@ -389,4 +391,71 @@ fn test_merge_read_stats_errors_on_non_numeric_count() {
 fn test_sum_arrays_errors_on_non_numeric_element() {
     let a = vec![json!(1), json!("not a number")];
     assert!(sum_arrays(&[a.as_slice()]).is_err());
+}
+
+// ── Output formatting (fastp byte-for-byte layout) ──────────────────────────────
+
+#[test]
+#[allow(clippy::unreadable_literal)] // exact digits matter for byte-for-byte assertions
+fn test_format_scientific_notation_matches_python_repr() {
+    // Small values switch to scientific notation with a zero-padded, signed exponent,
+    // exactly as CPython's repr / json.dumps renders them.
+    let value = json!({ "curve": [3.3121766666666663e-06, 1.8583343333333333e-05, 0.0] });
+    let out = format_fastp_json(&value).unwrap();
+    assert_eq!(
+        out,
+        "{\n\t\"curve\":[3.3121766666666663e-06,1.8583343333333333e-05,0.0]\n}"
+    );
+}
+
+#[test]
+fn test_format_arrays_are_compact_with_no_space_after_colon() {
+    // Arrays are emitted on one line; the colon before an array has no trailing space,
+    // while scalar members keep ": ".
+    let value = json!({ "histogram": [1100, 57, 0], "peak": 5 });
+    let out = format_fastp_json(&value).unwrap();
+    assert_eq!(out, "{\n\t\"histogram\":[1100,57,0],\n\t\"peak\": 5\n}");
+}
+
+#[test]
+fn test_format_kmer_count_matrix_16_per_line() {
+    // kmer_count is laid out as a matrix of 16 entries per line, tab-separated.
+    let mut kmers = serde_json::Map::new();
+    for i in 0..18 {
+        kmers.insert(format!("KMER{i:02}"), json!(i));
+    }
+    let value = json!({ "kmer_count": Value::Object(kmers) });
+    let out = format_fastp_json(&value).unwrap();
+    let lines: Vec<&str> = out.lines().collect();
+    // Opening key line, two entry lines (16 + 2), closing brace.
+    assert_eq!(lines[0], "{");
+    assert_eq!(lines[1], "\t\"kmer_count\": {");
+    assert_eq!(lines[2].matches("\"KMER").count(), 16, "first line has 16 entries");
+    assert!(lines[2].starts_with("\t\t\"KMER00\": 0,\t\t\t\"KMER01\": 1,"));
+    assert!(lines[2].ends_with(',')); // more entries follow
+    assert!(lines[3].starts_with("\t\t\"KMER16\": 16,\t\t\t\"KMER17\": 17"));
+    assert!(!lines[3].ends_with(',')); // last entry line, no trailing comma
+    assert_eq!(lines[4], "\t}");
+}
+
+#[test]
+#[allow(clippy::unreadable_literal)] // exact digits matter for byte-for-byte assertions
+fn test_format_round_trips_to_equal_json_value() {
+    // Whatever the layout, the formatted text must parse back to the same value.
+    let value = json!({
+        "summary": { "gc_content": 0.411777788638235, "total_reads": 9992680 },
+        "curve": [0.0, 1.4730833333333333e-07, 36.45766666666666],
+        "nested": { "kmer_count": { "AAAAA": 3051349, "AAAAT": 1881570 } }
+    });
+    let out = format_fastp_json(&value).unwrap();
+    let reparsed: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(reparsed, value);
+}
+
+#[test]
+#[allow(clippy::unreadable_literal)] // exact digits matter for byte-for-byte assertions
+fn test_format_integers_keep_no_decimal_point() {
+    let value = json!({ "total_bases": 1000411400, "rate": 0.5 });
+    let out = format_fastp_json(&value).unwrap();
+    assert_eq!(out, "{\n\t\"total_bases\": 1000411400,\n\t\"rate\": 0.5\n}");
 }
