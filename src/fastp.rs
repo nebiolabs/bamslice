@@ -467,7 +467,7 @@ fn require_section(data_list: &[Value], keys: &[&str]) -> Result<Vec<Value>> {
 /// (`summary.before_filtering`, `summary.after_filtering`, `filtering_result`,
 /// `duplication`, `adapter_cutting`), or if any required numeric field within a
 /// merged section is missing or has a non-numeric value.
-pub fn merge_fastp_jsons(data_list: &[Value]) -> Result<Value> {
+pub fn merge_jsons(data_list: &[Value]) -> Result<Value> {
     if data_list.is_empty() {
         return Ok(Value::Object(Map::new()));
     }
@@ -767,7 +767,7 @@ fn write_value(value: &Value, depth: usize, out: &mut String) -> Result<()> {
 /// # Errors
 ///
 /// Returns an error if a key or string value cannot be serialized.
-pub fn format_fastp_json(value: &Value) -> Result<String> {
+pub fn format_json(value: &Value) -> Result<String> {
     let mut out = String::new();
     write_value(value, 0, &mut out)?;
     Ok(out)
