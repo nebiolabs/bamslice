@@ -105,6 +105,43 @@ pub fn average_arrays(arrays: &[&[Value]]) -> Result<Vec<Value>> {
         .collect())
 }
 
+/// Average arrays element-wise, weighting each array `i` by `weights[i]`.
+///
+/// fastp reports each per-cycle curve value as a mean over a chunk's reads, so the
+/// whole-dataset mean is the read-count-weighted average of the per-chunk means.
+/// Each position accumulates only the weights of arrays that actually reach it, so
+/// variable-length inputs are handled without padding bias. A position with zero
+/// total weight yields `0.0`.
+///
+/// # Errors
+///
+/// Returns an error if any present element is not a number.
+pub fn weighted_average_arrays(arrays: &[&[Value]], weights: &[f64]) -> Result<Vec<Value>> {
+    if arrays.is_empty() {
+        return Ok(Vec::new());
+    }
+    let max_len = arrays.iter().map(|a| a.len()).max().unwrap_or(0);
+    let mut sums = vec![0_f64; max_len];
+    let mut weight_totals = vec![0_f64; max_len];
+    for (arr, &weight) in arrays.iter().zip(weights.iter()) {
+        for (i, val) in arr.iter().enumerate() {
+            sums[i] = element_as_f64(val)?.mul_add(weight, sums[i]);
+            weight_totals[i] += weight;
+        }
+    }
+    Ok(sums
+        .iter()
+        .zip(weight_totals.iter())
+        .map(|(&sum, &total)| {
+            if total > 0.0 {
+                Value::from(sum / total)
+            } else {
+                Value::from(0.0)
+            }
+        })
+        .collect())
+}
+
 /// Merge kmer count objects by summing counts per kmer.
 ///
 /// Errors if any count is not an integer.
@@ -122,26 +159,34 @@ fn merge_kmer_counts(dicts: &[&Map<String, Value>]) -> Result<Map<String, Value>
     Ok(merged)
 }
 
-/// Merge quality or content curve objects by averaging each key's array across chunks.
+/// Merge quality or content curve objects by averaging each key's array across chunks,
+/// weighting every chunk by its read count (`weights[i]`, index-aligned with `curves`).
+///
+/// A chunk's curve value at a cycle is a mean over that chunk's reads, so the
+/// dataset-wide mean is the read-count-weighted average of the per-chunk means — not a
+/// flat average, which would over-weight small chunks. `weights` therefore carries each
+/// chunk's section `total_reads`. See [`weighted_average_arrays`] for the per-cycle detail.
 ///
 /// Errors if a curve value present in a chunk is not an array of numbers.
-fn merge_curve_maps(curves: &[&Map<String, Value>]) -> Result<Map<String, Value>> {
+fn merge_curve_maps(curves: &[&Map<String, Value>], weights: &[f64]) -> Result<Map<String, Value>> {
     if curves.is_empty() {
         return Ok(Map::new());
     }
     let mut merged = Map::new();
     for key in curves[0].keys() {
         let mut arrays: Vec<&[Value]> = Vec::new();
-        for curve in curves {
+        let mut arr_weights: Vec<f64> = Vec::new();
+        for (curve, &weight) in curves.iter().zip(weights.iter()) {
             if let Some(value) = curve.get(key) {
                 let array = value
                     .as_array()
                     .with_context(|| format!("curve '{key}' is not an array"))?;
                 arrays.push(array.as_slice());
+                arr_weights.push(weight);
             }
         }
-        let averaged =
-            average_arrays(&arrays).with_context(|| format!("averaging curve '{key}'"))?;
+        let averaged = weighted_average_arrays(&arrays, &arr_weights)
+            .with_context(|| format!("averaging curve '{key}'"))?;
         merged.insert(key.clone(), Value::Array(averaged));
     }
     Ok(merged)
@@ -188,6 +233,11 @@ fn merge_filtering_result(results: &[Value]) -> Result<Value> {
 
 /// Merge insert size objects by summing histograms and recomputing the peak.
 ///
+/// Note: the summing here is exact, but read pairs split across a chunk boundary
+/// lose their mate and get counted as `unknown` by fastp, so the merged result drifts
+/// slightly from a whole-dataset run. That is a slicing artifact, not a merge bug — see
+/// `docs/merge-fidelity.md`.
+///
 /// Errors if a histogram or the `unknown` count is missing or malformed.
 fn merge_insert_size(sizes: &[Value]) -> Result<Value> {
     let mut histograms: Vec<&[Value]> = Vec::new();
@@ -224,6 +274,10 @@ fn merge_insert_size(sizes: &[Value]) -> Result<Value> {
 }
 
 /// Compute a weighted-average duplication rate, weighting each chunk by its total read count.
+///
+/// This is an approximation: duplicates that fall in different chunks are invisible to
+/// any per-chunk statistic, so the merged rate undercounts cross-chunk duplicates and
+/// cannot match a whole-dataset run. See `docs/merge-fidelity.md`.
 ///
 /// Errors if a chunk's duplication rate or its `summary.before_filtering.total_reads`
 /// (the weight) is missing or malformed.
@@ -357,13 +411,24 @@ pub fn merge_read_stats(stats: &[Value], stage_name: &str) -> Result<Value> {
     }
 
     for section in &["quality_curves", "content_curves"] {
-        let maps: Vec<&Map<String, Value>> = stats
-            .iter()
-            .filter_map(|s| s.get(*section)?.as_object())
-            .collect();
+        // Curves are read-count-weighted means, so each chunk's curve is paired with
+        // that chunk's `total_reads` (the per-cycle weight; exact for raw, full-length
+        // reads, a close proxy once trimming makes lengths vary).
+        let mut maps: Vec<&Map<String, Value>> = Vec::new();
+        let mut weights: Vec<f64> = Vec::new();
+        for stat in stats {
+            if let Some(obj) = stat.get(*section).and_then(Value::as_object) {
+                maps.push(obj);
+                weights.push(
+                    stat.get("total_reads")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0),
+                );
+            }
+        }
         if !maps.is_empty() {
-            let curves =
-                merge_curve_maps(&maps).with_context(|| format!("{stage_name} {section}"))?;
+            let curves = merge_curve_maps(&maps, &weights)
+                .with_context(|| format!("{stage_name} {section}"))?;
             merged.insert((*section).to_string(), Value::Object(curves));
         }
     }
@@ -523,10 +588,11 @@ pub fn merge_jsons(data_list: &[Value]) -> Result<Value> {
     );
 
     // Per-read sections (only present for paired-end data, except read1 for single-end).
+    // Order matches fastp's own output: both `before` sections, then both `after`.
     for section in &[
         "read1_before_filtering",
-        "read1_after_filtering",
         "read2_before_filtering",
+        "read1_after_filtering",
         "read2_after_filtering",
     ] {
         if data_list[0].get(*section).is_some() {
@@ -538,88 +604,103 @@ pub fn merge_jsons(data_list: &[Value]) -> Result<Value> {
     Ok(Value::Object(merged))
 }
 
-/// Format an `f64` exactly as `CPython`'s `repr`/`json.dumps` would.
+/// Strip trailing zeros (and a now-orphaned decimal point) from a fixed-notation
+/// number, matching `%g`'s suppression of insignificant trailing digits.
+fn strip_trailing_zeros(s: &str) -> &str {
+    if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        s
+    }
+}
+
+/// Format an `f64` the way fastp's C++ output does.
 ///
-/// fastp's reference output is produced by a Python script, so reproducing its
-/// bytes means matching Python's float formatting: the shortest round-tripping
-/// digit sequence (which Rust's lower-exp formatter also yields), switched to
-/// scientific notation when the decimal point falls at position `<= -4` or `> 16`,
-/// with the exponent sign always present and zero-padded to at least two digits.
-fn python_float_repr(f: f64) -> String {
+/// fastp writes its JSON with a `std::ostream` left at the default precision, which
+/// is `printf`'s `%g` with 6 significant figures. Reproducing its bytes therefore
+/// means: round to 6 significant digits; use fixed notation when the decimal
+/// exponent `X` satisfies `-4 <= X < 6` and scientific (`d.ddddde±XX`, exponent sign
+/// always present and zero-padded to at least two digits) otherwise; strip trailing
+/// zeros and any orphaned decimal point. Zero is written as a bare `0`.
+fn fastp_float_repr(f: f64) -> String {
     if f == 0.0 {
-        return if f.is_sign_negative() { "-0.0" } else { "0.0" }.to_string();
+        return "0".to_string();
     }
     if f.is_nan() {
-        return "NaN".to_string();
+        return "nan".to_string();
     }
     if f.is_infinite() {
-        return if f < 0.0 { "-Infinity" } else { "Infinity" }.to_string();
+        return if f < 0.0 { "-inf" } else { "inf" }.to_string();
     }
 
-    // Rust's lower-exponential formatter gives the shortest round-tripping mantissa
-    // plus an exponent, e.g. "1.8583343333333333e-5" or "3.645766666666666e1".
-    let sci = format!("{f:e}");
+    // `{:.5e}` yields exactly 6 significant digits in scientific form
+    // (e.g. "4.12386e-1"), performing the round-to-6-sig-figs for us.
+    let sci = format!("{f:.5e}");
     let (mantissa, exp_str) = sci
         .split_once('e')
-        .expect("lower-exp format always contains 'e'");
-    let exp: i32 = exp_str.parse().expect("lower-exp exponent is an integer");
+        .expect("scientific format always contains 'e'");
+    let exp: i32 = exp_str.parse().expect("scientific exponent is an integer");
 
     let negative = mantissa.starts_with('-');
     let mant = mantissa.trim_start_matches('-');
+    // The six significant digits, decimal point removed.
     let digits: String = mant.chars().filter(|&c| c != '.').collect();
-    let ndigits = i32::try_from(digits.len()).unwrap_or(i32::MAX);
-
-    // Position of the decimal point relative to the start of `digits`.
-    let decpt = exp + 1;
 
     let mut out = String::new();
     if negative {
         out.push('-');
     }
 
-    if decpt <= -4 || decpt > 16 {
-        // Scientific notation: d.ddde±XX
+    // %g uses fixed notation when -4 <= exp < precision (6), scientific otherwise.
+    if (-4..6).contains(&exp) {
+        // Position of the decimal point relative to the start of `digits`.
+        let decpt = exp + 1;
+        let body = if decpt <= 0 {
+            let mut s = String::from("0.");
+            for _ in 0..-decpt {
+                s.push('0');
+            }
+            s.push_str(&digits);
+            s
+        } else {
+            let split = usize::try_from(decpt).unwrap_or(0);
+            if split >= digits.len() {
+                let mut s = digits.clone();
+                for _ in 0..(split - digits.len()) {
+                    s.push('0');
+                }
+                s
+            } else {
+                format!("{}.{}", &digits[..split], &digits[split..])
+            }
+        };
+        out.push_str(strip_trailing_zeros(&body));
+    } else {
+        // Scientific: d.ddddd, with trailing zeros stripped from the fraction.
+        let rest = digits[1..].trim_end_matches('0');
         out.push_str(&digits[..1]);
-        if digits.len() > 1 {
+        if !rest.is_empty() {
             out.push('.');
-            out.push_str(&digits[1..]);
+            out.push_str(rest);
         }
-        let e = decpt - 1;
         out.push('e');
-        out.push(if e < 0 { '-' } else { '+' });
-        let magnitude = e.abs();
+        out.push(if exp < 0 { '-' } else { '+' });
+        let magnitude = exp.abs();
         if magnitude < 10 {
             out.push('0');
         }
         out.push_str(&magnitude.to_string());
-    } else if decpt <= 0 {
-        out.push_str("0.");
-        for _ in 0..-decpt {
-            out.push('0');
-        }
-        out.push_str(&digits);
-    } else if decpt >= ndigits {
-        out.push_str(&digits);
-        for _ in 0..(decpt - ndigits) {
-            out.push('0');
-        }
-        out.push_str(".0");
-    } else {
-        let split = usize::try_from(decpt).unwrap_or(0);
-        out.push_str(&digits[..split]);
-        out.push('.');
-        out.push_str(&digits[split..]);
     }
 
     out
 }
 
-/// Format a JSON number, preserving integers verbatim and rendering floats à la Python.
+/// Format a JSON number, preserving integers verbatim and rendering floats as fastp does.
 fn format_number(n: &serde_json::Number) -> String {
     if n.is_i64() || n.is_u64() {
         n.to_string()
     } else if let Some(f) = n.as_f64() {
-        python_float_repr(f)
+        fastp_float_repr(f)
     } else {
         n.to_string()
     }
@@ -757,12 +838,11 @@ fn write_value(value: &Value, depth: usize, out: &mut String) -> Result<()> {
 /// Objects are pretty-printed with tab indentation, arrays are compacted onto a
 /// single line with no interior whitespace and no space after the colon
 /// (`"histogram":[1,2,3]`), `kmer_count` maps are laid out as a matrix of 16 entries
-/// per line, and floats are formatted exactly as `CPython`'s `repr` would. This
-/// reproduces the upstream Python merge script's output so the result diffs cleanly
-/// against the original tool.
+/// per line, and floats are formatted as fastp's C++ output does (6 significant
+/// figures; see [`fastp_float_repr`]). This reproduces fastp's own layout so the
+/// result diffs cleanly against an unsplit run.
 ///
-/// The returned string has no trailing newline; callers append one (matching the
-/// Python script's final `print`).
+/// The returned string has no trailing newline; callers append one to match fastp.
 ///
 /// # Errors
 ///

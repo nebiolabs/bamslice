@@ -395,15 +395,13 @@ fn test_sum_arrays_errors_on_non_numeric_element() {
 
 #[test]
 #[allow(clippy::unreadable_literal)] // exact digits matter for byte-for-byte assertions
-fn test_format_scientific_notation_matches_python_repr() {
-    // Small values switch to scientific notation with a zero-padded, signed exponent,
-    // exactly as CPython's repr / json.dumps renders them.
+fn test_format_scientific_notation_matches_fastp() {
+    // fastp renders floats at 6 significant figures (C++ default ostream / %g): small
+    // values switch to scientific with a signed, two-digit exponent, and zero is a
+    // bare `0` (not `0.0`).
     let value = json!({ "curve": [3.3121766666666663e-06, 1.8583343333333333e-05, 0.0] });
     let out = format_json(&value).unwrap();
-    assert_eq!(
-        out,
-        "{\n\t\"curve\":[3.3121766666666663e-06,1.8583343333333333e-05,0.0]\n}"
-    );
+    assert_eq!(out, "{\n\t\"curve\":[3.31218e-06,1.85833e-05,0]\n}");
 }
 
 #[test]
@@ -442,16 +440,20 @@ fn test_format_kmer_count_matrix_16_per_line() {
 
 #[test]
 #[allow(clippy::unreadable_literal)] // exact digits matter for byte-for-byte assertions
-fn test_format_round_trips_to_equal_json_value() {
-    // Whatever the layout, the formatted text must parse back to the same value.
+fn test_format_rounds_floats_to_six_significant_figures() {
+    // fastp output carries only 6 significant figures, so the formatter is
+    // intentionally lossy for floats (long f64s collapse to fastp's representation)
+    // while integers are emitted verbatim.
     let value = json!({
-        "summary": { "gc_content": 0.411777788638235, "total_reads": 9992680 },
+        "gc_content": 0.411777788638235,
+        "total_reads": 9992680,
         "curve": [0.0, 1.4730833333333333e-07, 36.45766666666666],
-        "nested": { "kmer_count": { "AAAAA": 3051349, "AAAAT": 1881570 } }
     });
     let out = format_json(&value).unwrap();
-    let reparsed: Value = serde_json::from_str(&out).unwrap();
-    assert_eq!(reparsed, value);
+    assert_eq!(
+        out,
+        "{\n\t\"gc_content\": 0.411778,\n\t\"total_reads\": 9992680,\n\t\"curve\":[0,1.47308e-07,36.4577]\n}"
+    );
 }
 
 #[test]
