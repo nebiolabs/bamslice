@@ -73,38 +73,6 @@ pub fn sum_arrays(arrays: &[&[Value]]) -> Result<Vec<Value>> {
     }
 }
 
-/// Average arrays element-wise, handling variable-length inputs gracefully.
-///
-/// # Errors
-///
-/// Returns an error if any present element is not a number.
-#[allow(clippy::cast_precision_loss)]
-pub fn average_arrays(arrays: &[&[Value]]) -> Result<Vec<Value>> {
-    if arrays.is_empty() {
-        return Ok(Vec::new());
-    }
-    let max_len = arrays.iter().map(|a| a.len()).max().unwrap_or(0);
-    let mut sums = vec![0_f64; max_len];
-    let mut counts = vec![0_usize; max_len];
-    for arr in arrays {
-        for (i, val) in arr.iter().enumerate() {
-            sums[i] += element_as_f64(val)?;
-            counts[i] += 1;
-        }
-    }
-    Ok(sums
-        .iter()
-        .zip(counts.iter())
-        .map(|(&sum, &count)| {
-            if count > 0 {
-                Value::from(sum / count as f64)
-            } else {
-                Value::from(0.0)
-            }
-        })
-        .collect())
-}
-
 /// Average arrays element-wise, weighting each array `i` by `weights[i]`.
 ///
 /// fastp reports each per-cycle curve value as a mean over a chunk's reads, so the

@@ -1,4 +1,4 @@
-use bamslice::fastp::{average_arrays, format_json, merge_jsons, merge_read_stats, sum_arrays};
+use bamslice::fastp::{format_json, merge_jsons, merge_read_stats, sum_arrays, weighted_average_arrays};
 use serde_json::{Value, json};
 use std::fs;
 
@@ -33,10 +33,10 @@ fn test_sum_arrays_empty() {
 }
 
 #[test]
-fn test_average_arrays_variable_length() {
+fn test_weighted_average_arrays_variable_length() {
     let a = vec![json!(10.0)];
     let b = vec![json!(20.0), json!(30.0)];
-    let result = average_arrays(&[a.as_slice(), b.as_slice()]).unwrap();
+    let result = weighted_average_arrays(&[a.as_slice(), b.as_slice()], &[1.0, 1.0]).unwrap();
     assert_approx_eq(result[0].as_f64().unwrap(), 15.0, "index 0");
     assert_approx_eq(
         result[1].as_f64().unwrap(),
