@@ -140,8 +140,15 @@ fn merge_curve_maps(curves: &[&Map<String, Value>], weights: &[f64]) -> Result<M
     if curves.is_empty() {
         return Ok(Map::new());
     }
+    let mut seen = std::collections::HashSet::new();
+    let all_keys: Vec<&String> = curves
+        .iter()
+        .flat_map(|c| c.keys())
+        .filter(|k| seen.insert(k.as_str()))
+        .collect();
+
     let mut merged = Map::new();
-    for key in curves[0].keys() {
+    for key in all_keys {
         let mut arrays: Vec<&[Value]> = Vec::new();
         let mut arr_weights: Vec<f64> = Vec::new();
         for (curve, &weight) in curves.iter().zip(weights.iter()) {
