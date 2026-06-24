@@ -41,15 +41,14 @@ fn main() -> Result<()> {
     // single-line arrays, 16-per-line kmer_count matrix).
     let json_str = bamslice::fastp::format_json(&merged).context("Failed to format merged JSON")?;
 
-    if let Some(ref path) = args.output {
+    let mut writer: Box<dyn Write> = if let Some(ref path) = args.output {
         let file = fs::File::create(path)
             .with_context(|| format!("Failed to create {}", path.display()))?;
-        let mut writer = BufWriter::new(file);
-        writeln!(writer, "{json_str}")?;
+        Box::new(BufWriter::new(file))
     } else {
-        let mut writer = BufWriter::new(io::stdout().lock());
-        writeln!(writer, "{json_str}")?;
-    }
+        Box::new(BufWriter::new(io::stdout().lock()))
+    };
+    writeln!(writer, "{json_str}")?;
 
     Ok(())
 }
