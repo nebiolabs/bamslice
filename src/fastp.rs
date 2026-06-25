@@ -319,7 +319,7 @@ fn apply_summary_rates(merged: &mut Map<String, Value>, stats: &[Value]) -> Resu
     // summaries, so each field is emitted only when the input actually contains it.
     if total_reads > 0.0 {
         for field in &["read1_mean_length", "read2_mean_length"] {
-            if stats.first().and_then(|s| s.get(*field)).is_none() {
+            if stats.iter().all(|s| s.get(*field).is_none()) {
                 continue;
             }
             let mut weighted_sum = 0.0_f64;
@@ -337,7 +337,7 @@ fn apply_summary_rates(merged: &mut Map<String, Value>, stats: &[Value]) -> Resu
         }
     }
 
-    if total_bases > 0.0 && stats.first().is_some_and(|s| s.get("gc_content").is_some()) {
+    if total_bases > 0.0 && stats.iter().any(|s| s.get("gc_content").is_some()) {
         let mut total_gc = 0.0_f64;
         for (i, stat) in stats.iter().enumerate() {
             let gc = required_f64(stat, "gc_content").with_context(|| format!("summary[{i}]"))?;
@@ -551,7 +551,7 @@ pub fn merge_jsons(data_list: &[Value]) -> Result<Value> {
 
     // insert_size is paired-end only; absent for single-end data. Emitted before
     // adapter_cutting to match fastp's own top-level key ordering.
-    if data_list[0].get("insert_size").is_some() {
+    if data_list.iter().any(|d| d.get("insert_size").is_some()) {
         let insert_sizes = require_section(data_list, &["insert_size"])?;
         merged.insert("insert_size".to_string(), merge_insert_size(&insert_sizes)?);
     }
@@ -570,7 +570,7 @@ pub fn merge_jsons(data_list: &[Value]) -> Result<Value> {
         "read1_after_filtering",
         "read2_after_filtering",
     ] {
-        if data_list[0].get(*section).is_some() {
+        if data_list.iter().any(|d| d.get(*section).is_some()) {
             let values = require_section(data_list, &[section])?;
             merged.insert((*section).to_string(), merge_read_stats(&values, section)?);
         }
