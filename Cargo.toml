@@ -35,8 +35,8 @@ formats_output = ["format_1930"] # FASTQ
 
 [lints.clippy]
 # Enable pedantic and nursery lints for higher code quality
-pedantic = { level = "warn" }
-nursery = { level = "warn" }
+pedantic = "warn"
+nursery = "warn"
 
 [dependencies]
 noodles = { version = "0.111.0", features = ["bam", "bgzf", "sam"] }
