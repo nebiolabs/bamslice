@@ -372,12 +372,15 @@ pub fn merge_read_stats(stats: &[Value], stage_name: &str, kind: ReadStatsKind) 
         merged.insert((*field).to_string(), Value::from(sum));
     }
 
-    if matches!(kind, ReadStatsKind::PerRead) {
-        if let Some(cycles) = stats.first().and_then(|s| s.get("total_cycles")) {
-            merged.insert("total_cycles".to_string(), cycles.clone());
+    match kind {
+        ReadStatsKind::PerRead => {
+            if let Some(cycles) = stats.first().and_then(|s| s.get("total_cycles")) {
+                merged.insert("total_cycles".to_string(), cycles.clone());
+            }
         }
-    } else {
-        apply_summary_rates(&mut merged, stats)?;
+        ReadStatsKind::Summary => {
+            apply_summary_rates(&mut merged, stats)?;
+        }
     }
 
     for section in &["quality_curves", "content_curves"] {
