@@ -348,6 +348,7 @@ fn apply_summary_rates(merged: &mut Map<String, Value>, stats: &[Value]) -> Resu
 
 /// Distinguishes summary sections (`before_filtering`, `after_filtering`) from per-read
 /// sections (`read1_before_filtering`, etc.) when calling [`merge_read_stats`].
+#[derive(Clone, Copy)]
 pub enum ReadStatsKind {
     /// Rates and mean lengths are recomputed from merged totals.
     Summary,
