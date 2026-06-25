@@ -50,3 +50,9 @@ timestamp,unix_time,commit,branch,benchmark,mean_ns,stddev_ns,throughput_mibs,ma
 2026-06-25 13:15:59,1782407759,4814249,main,bam/small_500kb,21961979,173933,21.71,Apple M1 Max
 2026-06-25 13:15:59,1782407759,4814249,main,bam/medium_1mb,43748302,282436,21.80,Apple M1 Max
 2026-06-25 13:15:59,1782407759,4814249,main,bam/large_5mb,221146812,2229358,21.56,Apple M1 Max
+2026-06-25 17:23:04,1782408184,74b5fc5,main,fastq/small_500kb,12378352,171019,38.52,Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+2026-06-25 17:23:04,1782408184,74b5fc5,main,fastq/medium_1mb,24738099,546893,38.55,Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+2026-06-25 17:23:04,1782408184,74b5fc5,main,fastq/large_5mb,122692557,636423,38.86,Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+2026-06-25 17:23:04,1782408184,74b5fc5,main,bam/small_500kb,27053315,596045,17.63,Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+2026-06-25 17:23:04,1782408184,74b5fc5,main,bam/medium_1mb,54028780,1008286,17.65,Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz
+2026-06-25 17:23:04,1782408184,74b5fc5,main,bam/large_5mb,273786794,1382898,17.42,Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz

@@ -97,3 +97,12 @@ test process_blocks/bam/small_500kb ... bench:  21,961,979 ns/iter (+/- 173,933)
 test process_blocks/bam/medium_1mb ... bench:  43,748,302 ns/iter (+/- 282,436)
 test process_blocks/bam/large_5mb ... bench: 221,146,812 ns/iter (+/- 2,229,358)
 ----------------------------------------
+
+=== 2026-06-25 17:23:04 | 74b5fc5 | main | Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz ===
+test process_blocks/fastq/small_500kb ... bench:  12,378,352 ns/iter (+/- 171,019)
+test process_blocks/fastq/medium_1mb ... bench:  24,738,099 ns/iter (+/- 546,893)
+test process_blocks/fastq/large_5mb ... bench: 122,692,557 ns/iter (+/- 636,423)
+test process_blocks/bam/small_500kb ... bench:  27,053,315 ns/iter (+/- 596,045)
+test process_blocks/bam/medium_1mb ... bench:  54,028,780 ns/iter (+/- 1,008,286)
+test process_blocks/bam/large_5mb ... bench: 273,786,794 ns/iter (+/- 1,382,898)
+----------------------------------------
