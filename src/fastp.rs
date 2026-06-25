@@ -575,7 +575,10 @@ pub fn merge_jsons(data_list: &[Value]) -> Result<Value> {
     ] {
         if data_list.iter().any(|d| d.get(*section).is_some()) {
             let values = require_section(data_list, &[section])?;
-            merged.insert((*section).to_string(), merge_read_stats(&values, section, ReadStatsKind::PerRead)?);
+            merged.insert(
+                (*section).to_string(),
+                merge_read_stats(&values, section, ReadStatsKind::PerRead)?,
+            );
         }
     }
 

@@ -1,4 +1,6 @@
-use bamslice::fastp::{format_json, merge_jsons, merge_read_stats, sum_arrays, weighted_average_arrays, ReadStatsKind};
+use bamslice::fastp::{
+    ReadStatsKind, format_json, merge_jsons, merge_read_stats, sum_arrays, weighted_average_arrays,
+};
 use serde_json::{Value, json};
 use std::fs;
 
@@ -93,7 +95,8 @@ fn test_merge_read_stats_summary_recalculates_rates() {
 fn test_merge_read_stats_read_section_preserves_cycles() {
     let s1 = json!({"total_reads": 500, "total_bases": 75000, "q20_bases": 70000, "q30_bases": 60000, "total_cycles": 150});
     let s2 = json!({"total_reads": 500, "total_bases": 75000, "q20_bases": 70000, "q30_bases": 60000, "total_cycles": 150});
-    let result = merge_read_stats(&[s1, s2], "read1_before_filtering", ReadStatsKind::PerRead).unwrap();
+    let result =
+        merge_read_stats(&[s1, s2], "read1_before_filtering", ReadStatsKind::PerRead).unwrap();
 
     assert_eq!(result["total_reads"].as_i64(), Some(1000));
     assert_eq!(result["total_cycles"].as_i64(), Some(150));
