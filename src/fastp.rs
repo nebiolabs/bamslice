@@ -110,21 +110,26 @@ pub fn weighted_average_arrays(arrays: &[&[Value]], weights: &[f64]) -> Result<V
         .collect())
 }
 
-/// Merge kmer count objects by summing counts per kmer.
+/// Merge string-keyed integer count maps by summing per-key counts.
 ///
+/// `item_label` is used in error messages to identify the key type (e.g. "kmer", "adapter").
 /// Errors if any count is not an integer.
-fn merge_kmer_counts(dicts: &[&Map<String, Value>]) -> Result<Map<String, Value>> {
+fn merge_int_counts(dicts: &[&Map<String, Value>], item_label: &str) -> Result<Map<String, Value>> {
     let mut merged: Map<String, Value> = Map::new();
     for dict in dicts {
-        for (kmer, count) in *dict {
+        for (key, count) in *dict {
             let count = count.as_i64().with_context(|| {
-                format!("kmer '{kmer}' count is not an integer (found {count})")
+                format!("{item_label} '{key}' count is not an integer (found {count})")
             })?;
-            let existing = merged.get(kmer).and_then(Value::as_i64).unwrap_or(0);
-            merged.insert(kmer.clone(), Value::from(existing + count));
+            let existing = merged.get(key).and_then(Value::as_i64).unwrap_or(0);
+            merged.insert(key.clone(), Value::from(existing.saturating_add(count)));
         }
     }
     Ok(merged)
+}
+
+fn merge_kmer_counts(dicts: &[&Map<String, Value>]) -> Result<Map<String, Value>> {
+    merge_int_counts(dicts, "kmer")
 }
 
 /// Merge quality or content curve objects by averaging each key's array across chunks,
@@ -167,21 +172,8 @@ fn merge_curve_maps(curves: &[&Map<String, Value>], weights: &[f64]) -> Result<M
     Ok(merged)
 }
 
-/// Merge adapter count objects by summing counts per adapter sequence.
-///
-/// Errors if any count is not an integer.
 fn merge_adapter_counts(dicts: &[&Map<String, Value>]) -> Result<Map<String, Value>> {
-    let mut merged: Map<String, Value> = Map::new();
-    for dict in dicts {
-        for (adapter, count) in *dict {
-            let count = count.as_i64().with_context(|| {
-                format!("adapter '{adapter}' count is not an integer (found {count})")
-            })?;
-            let existing = merged.get(adapter).and_then(Value::as_i64).unwrap_or(0);
-            merged.insert(adapter.clone(), Value::from(existing + count));
-        }
-    }
-    Ok(merged)
+    merge_int_counts(dicts, "adapter")
 }
 
 /// Merge filtering result objects by summing all count fields.
