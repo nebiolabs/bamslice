@@ -126,6 +126,7 @@ make bench && open target/criterion/report/index.html
 
 Release a new version:
 ```bash
+cargo login
 echo "update Cargo.toml with new version"
 git commit -m 'update package version to vX.Y.Z'
 git tag -m 'tag for release' vX.Y.Z
