@@ -1,165 +1,99 @@
 
-=== 2025-11-23 13:56:55 | c9c1cd0 | main ===
+=== 2025-11-23 13:56:55 | c9c1cd0 | main | ? ===
 test process_blocks/small_500kb ... bench:     9234996 ns/iter (+/- 87465)
 test process_blocks/medium_1mb ... bench:    18382604 ns/iter (+/- 132484)
 test process_blocks/large_5mb ... bench:    92602500 ns/iter (+/- 2038350)
 ----------------------------------------
 
-=== 2025-11-24 00:46:23 | e1e33fc | main ===
+=== 2025-11-24 00:46:23 | e1e33fc | main | ? ===
 test process_blocks/small_500kb ... bench:    11410391 ns/iter (+/- 139167)
 test process_blocks/medium_1mb ... bench:    22869414 ns/iter (+/- 221125)
 test process_blocks/large_5mb ... bench:   115149326 ns/iter (+/- 1005271)
 ----------------------------------------
 
-=== 2025-11-24 00:54:50 | 7a4b1b2 | main ===
+=== 2025-11-24 00:54:50 | 7a4b1b2 | main | github-actions-ubuntu-latest ===
 test process_blocks/small_500kb ... bench:    14824403 ns/iter (+/- 87206)
 test process_blocks/medium_1mb ... bench:    29615121 ns/iter (+/- 101972)
 test process_blocks/large_5mb ... bench:   147406780 ns/iter (+/- 1459302)
 ----------------------------------------
 
-=== 2025-11-24 01:01:27 | 9849e47 | main ===
+=== 2025-11-24 01:01:27 | 9849e47 | main | github-actions-ubuntu-latest ===
 test process_blocks/small_500kb ... bench:    14800645 ns/iter (+/- 246505)
 test process_blocks/medium_1mb ... bench:    29483389 ns/iter (+/- 147101)
 test process_blocks/large_5mb ... bench:   147092032 ns/iter (+/- 1831137)
 ----------------------------------------
 
-=== 2025-11-24 01:03:18 | ff84c51 | main ===
+=== 2025-11-24 01:03:18 | ff84c51 | main | github-actions-ubuntu-latest ===
 test process_blocks/small_500kb ... bench:    14889385 ns/iter (+/- 337749)
 test process_blocks/medium_1mb ... bench:    29648203 ns/iter (+/- 73620)
 test process_blocks/large_5mb ... bench:   147823389 ns/iter (+/- 2092377)
 ----------------------------------------
 
-=== 2025-11-24 01:05:42 | 566a37a | main ===
+=== 2025-11-24 01:05:42 | 566a37a | main | github-actions-ubuntu-latest ===
 test process_blocks/small_500kb ... bench:    14830646 ns/iter (+/- 64971)
 test process_blocks/medium_1mb ... bench:    29555140 ns/iter (+/- 119813)
 test process_blocks/large_5mb ... bench:   147375856 ns/iter (+/- 1202029)
 ----------------------------------------
 
-=== 2025-11-24 01:08:46 | 0da1cd8 | main ===
+=== 2025-11-24 01:08:46 | 0da1cd8 | main | github-actions-ubuntu-latest ===
 test process_blocks/small_500kb ... bench:    14825915 ns/iter (+/- 136524)
 test process_blocks/medium_1mb ... bench:    29521439 ns/iter (+/- 573508)
 test process_blocks/large_5mb ... bench:   147449349 ns/iter (+/- 836436)
 ----------------------------------------
 
-=== 2025-11-24 01:42:46 | 21e1a98 | main ===
+=== 2025-11-24 01:42:46 | 21e1a98 | main | github-actions-ubuntu-latest ===
 test process_blocks/small_500kb ... bench:    14827930 ns/iter (+/- 38080)
 test process_blocks/medium_1mb ... bench:    29546448 ns/iter (+/- 868562)
 test process_blocks/large_5mb ... bench:   147307794 ns/iter (+/- 811947)
 ----------------------------------------
 
-=== 2025-11-24 01:47:18 | eb83933 | main ===
+=== 2025-11-24 01:47:18 | eb83933 | main | github-actions-ubuntu-latest ===
 test process_blocks/small_500kb ... bench:    14400418 ns/iter (+/- 333302)
 test process_blocks/medium_1mb ... bench:    28693095 ns/iter (+/- 342330)
 test process_blocks/large_5mb ... bench:   143069086 ns/iter (+/- 1394245)
 ----------------------------------------
 
-=== 2025-11-24 01:50:16 | 215b66d | main ===
+=== 2025-11-24 01:50:16 | 215b66d | main | github-actions-ubuntu-latest ===
 test process_blocks/small_500kb ... bench:    14393869 ns/iter (+/- 51481)
 test process_blocks/medium_1mb ... bench:    28700682 ns/iter (+/- 888055)
 test process_blocks/large_5mb ... bench:   143192609 ns/iter (+/- 701818)
 ----------------------------------------
 
-=== 2025-11-24 01:56:09 | 37e4854 | main ===
+=== 2025-11-24 01:56:09 | 37e4854 | main | github-actions-ubuntu-latest ===
 test process_blocks/small_500kb ... bench:    14409801 ns/iter (+/- 321196)
 test process_blocks/medium_1mb ... bench:    28710117 ns/iter (+/- 60507)
 test process_blocks/large_5mb ... bench:   143136396 ns/iter (+/- 1366977)
 ----------------------------------------
 
-=== 2025-11-24 02:05:33 | 80edd0b | main ===
+=== 2025-11-24 02:05:33 | 80edd0b | main | github-actions-ubuntu-latest ===
 test process_blocks/small_500kb ... bench:    14381838 ns/iter (+/- 43644)
 test process_blocks/medium_1mb ... bench:    28651951 ns/iter (+/- 129053)
 test process_blocks/large_5mb ... bench:   142700215 ns/iter (+/- 1168960)
 ----------------------------------------
 
-=== 2025-11-24 23:44:20 | c8e5f56 | main ===
+=== 2025-11-24 23:44:20 | c8e5f56 | main | github-actions-ubuntu-latest ===
 test process_blocks/small_500kb ... bench:    15049697 ns/iter (+/- 50034)
 test process_blocks/medium_1mb ... bench:    29989265 ns/iter (+/- 326320)
 test process_blocks/large_5mb ... bench:   149466973 ns/iter (+/- 1675714)
 ----------------------------------------
 
-=== 2025-11-24 23:50:50 | b059357 | main ===
+=== 2025-11-24 23:50:50 | b059357 | main | ? ===
 test process_blocks/small_500kb ... bench:    12033011 ns/iter (+/- 55491)
 test process_blocks/medium_1mb ... bench:    24210838 ns/iter (+/- 173548)
 test process_blocks/large_5mb ... bench:   120905648 ns/iter (+/- 1841497)
 ----------------------------------------
 
-=== 2025-11-28 12:03:32 | 5512a37 | main ===
+=== 2025-11-28 12:03:32 | 5512a37 | main | github-actions-ubuntu-latest ===
 test process_blocks/small_500kb ... bench:    14567619 ns/iter (+/- 180107)
 test process_blocks/medium_1mb ... bench:    28979799 ns/iter (+/- 100303)
 test process_blocks/large_5mb ... bench:   144525218 ns/iter (+/- 1397192)
 ----------------------------------------
 
-=== 2026-01-15 03:43:47 | a48b4ff | main ===
-test process_blocks/small_500kb ... bench:  15,086,518 ns/iter (+/- 182,669)
-test process_blocks/medium_1mb ... bench:  30,101,886 ns/iter (+/- 357,924)
-test process_blocks/large_5mb ... bench: 149,937,564 ns/iter (+/- 1,880,733)
-----------------------------------------
-
-=== 2026-02-19 22:30:55 | cedf8af | main ===
-test process_blocks/small_500kb ... bench:  14,662,961 ns/iter (+/- 181,163)
-test process_blocks/medium_1mb ... bench:  29,162,744 ns/iter (+/- 211,298)
-test process_blocks/large_5mb ... bench: 145,615,842 ns/iter (+/- 2,178,111)
-----------------------------------------
-
-=== 2026-04-21 02:32:41 | c70b63b | main ===
-test process_blocks/fastq/small_500kb ... bench:  12,023,025 ns/iter (+/- 210,811)
-test process_blocks/fastq/medium_1mb ... bench:  23,867,609 ns/iter (+/- 255,580)
-test process_blocks/fastq/large_5mb ... bench: 118,867,915 ns/iter (+/- 2,401,518)
-test process_blocks/bam/small_500kb ... bench:  32,563,153 ns/iter (+/- 782,434)
-test process_blocks/bam/medium_1mb ... bench:  65,008,762 ns/iter (+/- 776,643)
-test process_blocks/bam/large_5mb ... bench: 328,836,251 ns/iter (+/- 2,276,190)
-----------------------------------------
-
-=== 2026-04-21 03:18:30 | d16d30a | main ===
-test process_blocks/fastq/small_500kb ... bench:  14,779,817 ns/iter (+/- 583,584)
-test process_blocks/fastq/medium_1mb ... bench:  29,401,313 ns/iter (+/- 106,392)
-test process_blocks/fastq/large_5mb ... bench: 146,611,216 ns/iter (+/- 2,455,072)
-test process_blocks/bam/small_500kb ... bench:  34,828,580 ns/iter (+/- 115,598)
-test process_blocks/bam/medium_1mb ... bench:  69,241,857 ns/iter (+/- 263,235)
-test process_blocks/bam/large_5mb ... bench: 350,556,885 ns/iter (+/- 1,110,880)
-----------------------------------------
-
-=== 2026-06-12 01:31:15 | ccf1cd2 | main ===
-test process_blocks/fastq/small_500kb ... bench:  15,125,612 ns/iter (+/- 108,918)
-test process_blocks/fastq/medium_1mb ... bench:  30,043,664 ns/iter (+/- 88,243)
-test process_blocks/fastq/large_5mb ... bench: 149,775,906 ns/iter (+/- 1,175,750)
-test process_blocks/bam/small_500kb ... bench:  37,022,603 ns/iter (+/- 55,096)
-test process_blocks/bam/medium_1mb ... bench:  73,911,383 ns/iter (+/- 143,660)
-test process_blocks/bam/large_5mb ... bench: 374,840,583 ns/iter (+/- 384,717)
-----------------------------------------
-
-=== 2026-06-12 01:47:46 | 0b70320 | main ===
-test process_blocks/fastq/small_500kb ... bench:  12,143,486 ns/iter (+/- 378,678)
-test process_blocks/fastq/medium_1mb ... bench:  24,389,645 ns/iter (+/- 425,303)
-test process_blocks/fastq/large_5mb ... bench: 121,176,455 ns/iter (+/- 1,292,631)
-test process_blocks/bam/small_500kb ... bench:  32,383,259 ns/iter (+/- 79,487)
-test process_blocks/bam/medium_1mb ... bench:  64,706,556 ns/iter (+/- 258,253)
-test process_blocks/bam/large_5mb ... bench: 326,964,939 ns/iter (+/- 1,243,207)
-----------------------------------------
-
-=== 2026-06-12 01:51:15 | f2802a1 | main ===
-test process_blocks/fastq/small_500kb ... bench:  16,178,216 ns/iter (+/- 19,359)
-test process_blocks/fastq/medium_1mb ... bench:  32,195,139 ns/iter (+/- 53,252)
-test process_blocks/fastq/large_5mb ... bench: 160,526,034 ns/iter (+/- 1,027,591)
-test process_blocks/bam/small_500kb ... bench:  30,473,893 ns/iter (+/- 424,061)
-test process_blocks/bam/medium_1mb ... bench:  60,832,416 ns/iter (+/- 168,697)
-test process_blocks/bam/large_5mb ... bench: 309,731,698 ns/iter (+/- 409,947)
-----------------------------------------
-
-=== 2026-06-25 13:27:31 | 4ef8eb3 | main ===
-test process_blocks/fastq/small_500kb ... bench:  15,172,901 ns/iter (+/- 291,910)
-test process_blocks/fastq/medium_1mb ... bench:  30,163,768 ns/iter (+/- 80,480)
-test process_blocks/fastq/large_5mb ... bench: 150,033,974 ns/iter (+/- 1,871,489)
-test process_blocks/bam/small_500kb ... bench:  28,474,151 ns/iter (+/- 137,915)
-test process_blocks/bam/medium_1mb ... bench:  56,675,897 ns/iter (+/- 204,404)
-test process_blocks/bam/large_5mb ... bench: 287,830,262 ns/iter (+/- 2,689,737)
-----------------------------------------
-
-=== 2026-06-25 16:12:18 | 748e893 | main ===
-test process_blocks/fastq/small_500kb ... bench:  16,705,773 ns/iter (+/- 177,342)
-test process_blocks/fastq/medium_1mb ... bench:  33,191,048 ns/iter (+/- 248,056)
-test process_blocks/fastq/large_5mb ... bench: 164,821,424 ns/iter (+/- 1,393,516)
-test process_blocks/bam/small_500kb ... bench:  30,506,414 ns/iter (+/- 106,796)
-test process_blocks/bam/medium_1mb ... bench:  60,790,830 ns/iter (+/- 116,460)
-test process_blocks/bam/large_5mb ... bench: 309,304,846 ns/iter (+/- 521,181)
+=== 2026-06-25 13:15:59 | 4814249 | main | Apple M1 Max ===
+test process_blocks/fastq/small_500kb ... bench:   8,894,183 ns/iter (+/- 2,976,563)
+test process_blocks/fastq/medium_1mb ... bench:  17,646,680 ns/iter (+/- 5,960,977)
+test process_blocks/fastq/large_5mb ... bench:  89,141,625 ns/iter (+/- 29,591,263)
+test process_blocks/bam/small_500kb ... bench:  21,961,979 ns/iter (+/- 173,933)
+test process_blocks/bam/medium_1mb ... bench:  43,748,302 ns/iter (+/- 282,436)
+test process_blocks/bam/large_5mb ... bench: 221,146,812 ns/iter (+/- 2,229,358)
 ----------------------------------------

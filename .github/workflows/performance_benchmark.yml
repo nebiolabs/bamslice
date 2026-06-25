@@ -31,76 +31,17 @@ jobs:
             ${{ runner.os }}-cargo-bench-
             ${{ runner.os }}-cargo-
 
-      - name: Run benchmarks
-        run: cargo bench --bench bamslice_bench -- --output-format bencher | tee benchmark_results.txt
+      - name: Run benchmarks and update history
+        run: bash scripts/bench-track.sh
 
       - name: Generate throughput summary
         run: |
           echo "Benchmark Throughput Summary" > benchmark_summary.txt
           echo "============================" >> benchmark_summary.txt
           echo "" >> benchmark_summary.txt
-
-          grep "^test process_blocks" benchmark_results.txt | while read -r line; do
-            BENCH_NAME=$(echo "$line" | awk '{print $2}' | sed 's|process_blocks/||')
-            MEAN_NS=$(echo "$line" | grep -o '[0-9]\+ ns/iter' | grep -o '[0-9]\+')
-
-            case "$BENCH_NAME" in
-              small_500kb) BYTES=500000 ;;
-              medium_1mb) BYTES=1000000 ;;
-              large_5mb) BYTES=5000000 ;;
-              *) BYTES=0 ;;
-            esac
-
-            if [ "$MEAN_NS" -gt 0 ] && [ "$BYTES" -gt 0 ]; then
-              THROUGHPUT=$(awk "BEGIN {printf \"%.2f\", ($BYTES * 1000000000.0) / ($MEAN_NS * 1048576.0)}")
-              echo "$BENCH_NAME: $THROUGHPUT MiB/s ($MEAN_NS ns/iter)" >> benchmark_summary.txt
-            fi
+          tail -n +2 benches/history/results.csv | tail -6 | while IFS=, read -r ts unix commit branch bench mean_ns stddev throughput machine; do
+            echo "$bench: $throughput MiB/s ($mean_ns ns/iter)" >> benchmark_summary.txt
           done
-
-      - name: Update benchmark history
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
-          UNIX_TIME=$(date +%s)
-          COMMIT=$(git rev-parse --short HEAD)
-          BRANCH=$(git rev-parse --abbrev-ref HEAD)
-          HISTORY_DIR='benches/history'
-
-          mkdir -p "${HISTORY_DIR}"
-
-          # Create CSV if it doesn't exist
-          if [ ! -f "${HISTORY_DIR}/results.csv" ]; then
-            echo "timestamp,unix_time,commit,branch,benchmark,mean_ns,stddev_ns,throughput_mibs" > "${HISTORY_DIR}/results.csv"
-          fi
-
-          # Parse benchmark results and append to CSV
-          grep "^test process_blocks" benchmark_results.txt | while read -r line; do
-            BENCH_NAME=$(echo "$line" | awk '{print $2}' | sed 's|process_blocks/||')
-            MEAN_NS=$(echo "$line" | grep -o '[0-9]\+ ns/iter' | grep -o '[0-9]\+')
-            STDDEV_NS=$(echo "$line" | grep -o '+/- [0-9]\+' | grep -o '[0-9]\+')
-
-            case "$BENCH_NAME" in
-              small_500kb) BYTES=500000 ;;
-              medium_1mb) BYTES=1000000 ;;
-              large_5mb) BYTES=5000000 ;;
-              *) BYTES=0 ;;
-            esac
-
-            if [ "$MEAN_NS" -gt 0 ] && [ "$BYTES" -gt 0 ]; then
-              THROUGHPUT=$(awk "BEGIN {printf \"%.2f\", ($BYTES * 1000000000.0) / ($MEAN_NS * 1048576.0)}")
-            else
-              THROUGHPUT="0.00"
-            fi
-
-            echo "$TIMESTAMP,$UNIX_TIME,$COMMIT,$BRANCH,$BENCH_NAME,$MEAN_NS,$STDDEV_NS,$THROUGHPUT" >> "${HISTORY_DIR}/results.csv"
-            echo "$BENCH_NAME: $THROUGHPUT MiB/s ($MEAN_NS ns/iter)" >> benchmark_summary.txt
-          done
-
-          # Also update human-readable format
-          echo "" >> "${HISTORY_DIR}/results.txt"
-          echo "=== $TIMESTAMP | $COMMIT | $BRANCH ===" >> "${HISTORY_DIR}/results.txt"
-          grep "^test" benchmark_results.txt >> "${HISTORY_DIR}/results.txt" || true
-          echo "----------------------------------------" >> "${HISTORY_DIR}/results.txt"
 
       - name: Commit benchmark history
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -116,7 +57,6 @@ jobs:
         with:
           name: benchmark-results
           path: |
-            benchmark_results.txt
             benches/history/results.csv
             benches/history/results.txt
             target/criterion/
