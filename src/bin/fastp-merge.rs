@@ -1,0 +1,54 @@
+use anyhow::{Context, Result};
+use clap::Parser;
+use std::{
+    fs,
+    io::{self, BufWriter, Write},
+    path::PathBuf,
+};
+
+#[derive(Parser)]
+#[command(
+    name = "merge_fastp_json",
+    about = "Merge multiple fastp JSON files from chunked BAM processing into a single result"
+)]
+struct Args {
+    /// Input fastp JSON files to merge
+    #[arg(required = true)]
+    inputs: Vec<PathBuf>,
+
+    /// Output file path (default: stdout)
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
+fn main() -> Result<()> {
+    let args = Args::parse();
+
+    let data_list = args
+        .inputs
+        .iter()
+        .map(|path| {
+            let content = fs::read_to_string(path)
+                .with_context(|| format!("Failed to read {}", path.display()))?;
+            serde_json::from_str(&content)
+                .with_context(|| format!("Failed to parse JSON from {}", path.display()))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let merged =
+        bamslice::fastp::merge_jsons(&data_list).context("Failed to merge fastp JSON files")?;
+    // Lay the output out exactly like fastp's own JSON writer (tab indent,
+    // single-line arrays, 16-per-line kmer_count matrix).
+    let json_str = bamslice::fastp::format_json(&merged).context("Failed to format merged JSON")?;
+
+    let mut writer: Box<dyn Write> = if let Some(ref path) = args.output {
+        let file = fs::File::create(path)
+            .with_context(|| format!("Failed to create {}", path.display()))?;
+        Box::new(BufWriter::new(file))
+    } else {
+        Box::new(BufWriter::new(io::stdout().lock()))
+    };
+    writeln!(writer, "{json_str}")?;
+
+    Ok(())
+}
