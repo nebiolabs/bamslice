@@ -413,6 +413,10 @@ pub fn merge_read_stats(stats: &[Value], stage_name: &str, kind: ReadStatsKind) 
         merged.insert("kmer_count".to_string(), Value::Object(merged_kmers));
     }
 
+    // overrepresented_sequences cannot be meaningfully merged: each chunk prunes its
+    // own top-N sequences independently, so the per-chunk sets are not additive and
+    // the discarded tail can't be recovered. Emit an empty object (fastp's own output
+    // when nothing is found) to preserve the key's presence in the merged JSON.
     if stats
         .iter()
         .any(|s| s.get("overrepresented_sequences").is_some())
