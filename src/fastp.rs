@@ -346,19 +346,22 @@ fn apply_summary_rates(merged: &mut Map<String, Value>, stats: &[Value]) -> Resu
     Ok(())
 }
 
+/// Distinguishes summary sections (`before_filtering`, `after_filtering`) from per-read
+/// sections (`read1_before_filtering`, etc.) when calling [`merge_read_stats`].
+pub enum ReadStatsKind {
+    /// Rates and mean lengths are recomputed from merged totals.
+    Summary,
+    /// `total_cycles` is copied from the first chunk; rates are not recalculated.
+    PerRead,
+}
+
 /// Merge read statistics objects (before/after filtering, or per-read sections).
-///
-/// `stage_name` controls the merge strategy:
-/// - Names containing `"read"` (e.g. `"read1_before_filtering"`) are read-level sections:
-///   `total_cycles` is copied from the first chunk; derived rates are not recalculated.
-/// - All other names (e.g. `"before_filtering"`) are summary sections: rates and mean
-///   lengths are recalculated from the merged totals.
 ///
 /// # Errors
 ///
 /// Returns an error if a required count field is missing or not an integer, or if an
 /// optional sub-section (curves, kmer counts) is present but malformed.
-pub fn merge_read_stats(stats: &[Value], stage_name: &str) -> Result<Value> {
+pub fn merge_read_stats(stats: &[Value], stage_name: &str, kind: ReadStatsKind) -> Result<Value> {
     let mut merged = Map::new();
 
     for field in &["total_reads", "total_bases", "q20_bases", "q30_bases"] {
@@ -369,7 +372,7 @@ pub fn merge_read_stats(stats: &[Value], stage_name: &str) -> Result<Value> {
         merged.insert((*field).to_string(), Value::from(sum));
     }
 
-    if stage_name.contains("read") {
+    if matches!(kind, ReadStatsKind::PerRead) {
         if let Some(cycles) = stats.first().and_then(|s| s.get("total_cycles")) {
             merged.insert("total_cycles".to_string(), cycles.clone());
         }
@@ -519,11 +522,11 @@ pub fn merge_jsons(data_list: &[Value]) -> Result<Value> {
     let after = require_section(data_list, &["summary", "after_filtering"])?;
     summary.insert(
         "before_filtering".to_string(),
-        merge_read_stats(&before, "before_filtering")?,
+        merge_read_stats(&before, "before_filtering", ReadStatsKind::Summary)?,
     );
     summary.insert(
         "after_filtering".to_string(),
-        merge_read_stats(&after, "after_filtering")?,
+        merge_read_stats(&after, "after_filtering", ReadStatsKind::Summary)?,
     );
     merged.insert("summary".to_string(), Value::Object(summary));
 
@@ -564,7 +567,7 @@ pub fn merge_jsons(data_list: &[Value]) -> Result<Value> {
     ] {
         if data_list.iter().any(|d| d.get(*section).is_some()) {
             let values = require_section(data_list, &[section])?;
-            merged.insert((*section).to_string(), merge_read_stats(&values, section)?);
+            merged.insert((*section).to_string(), merge_read_stats(&values, section, ReadStatsKind::PerRead)?);
         }
     }
 
