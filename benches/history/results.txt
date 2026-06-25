@@ -115,3 +115,12 @@ test process_blocks/bam/small_500kb ... bench:  28,706,124 ns/iter (+/- 380,402)
 test process_blocks/bam/medium_1mb ... bench:  57,401,206 ns/iter (+/- 294,161)
 test process_blocks/bam/large_5mb ... bench: 290,526,942 ns/iter (+/- 2,559,410)
 ----------------------------------------
+
+=== 2026-06-25 18:14:40 | 3ae3ca3 | main | AMD EPYC 7763 64-Core Processor ===
+test process_blocks/fastq/small_500kb ... bench:  14,589,448 ns/iter (+/- 66,394)
+test process_blocks/fastq/medium_1mb ... bench:  29,022,158 ns/iter (+/- 110,449)
+test process_blocks/fastq/large_5mb ... bench: 144,734,448 ns/iter (+/- 2,746,001)
+test process_blocks/bam/small_500kb ... bench:  28,632,446 ns/iter (+/- 89,664)
+test process_blocks/bam/medium_1mb ... bench:  57,261,755 ns/iter (+/- 1,821,055)
+test process_blocks/bam/large_5mb ... bench: 290,007,140 ns/iter (+/- 1,561,859)
+----------------------------------------
