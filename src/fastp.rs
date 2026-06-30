@@ -178,17 +178,29 @@ fn merge_adapter_counts(dicts: &[&Map<String, Value>]) -> Result<Map<String, Val
 
 /// Merge filtering result objects by summing all count fields.
 ///
+/// `adapter_dimer_reads` (added in newer fastp versions) is summed only when present.
+/// If some chunks report it and others don't, `required_i64` errors — mixed-version
+/// inputs fail loudly rather than silently dropping dimer counts.
+///
 /// Errors if any required count field is missing or not an integer.
 fn merge_filtering_result(results: &[Value]) -> Result<Value> {
     const FIELDS: &[&str] = &[
         "passed_filter_reads",
         "low_quality_reads",
         "too_many_N_reads",
+        "adapter_dimer_reads",
         "too_short_reads",
         "too_long_reads",
     ];
+    let has_dimer = results
+        .iter()
+        .any(|r| r.get("adapter_dimer_reads").is_some());
+
     let mut merged = Map::new();
     for field in FIELDS {
+        if *field == "adapter_dimer_reads" && !has_dimer {
+            continue;
+        }
         let mut sum = 0_i64;
         for (i, result) in results.iter().enumerate() {
             sum += required_i64(result, field).with_context(|| format!("filtering_result[{i}]"))?;

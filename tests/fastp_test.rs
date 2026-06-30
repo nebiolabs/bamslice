@@ -191,8 +191,48 @@ fn test_merge_two_fixture_files_filtering_result() {
     assert_eq!(fr["passed_filter_reads"].as_i64(), Some(2850));
     assert_eq!(fr["low_quality_reads"].as_i64(), Some(90));
     assert_eq!(fr["too_many_N_reads"].as_i64(), Some(30));
+    assert_eq!(fr["adapter_dimer_reads"].as_i64(), Some(408));
     assert_eq!(fr["too_short_reads"].as_i64(), Some(30));
     assert_eq!(fr["too_long_reads"].as_i64(), Some(0));
+
+    // adapter_dimer_reads must keep fastp's field order: between too_many_N_reads
+    // and too_short_reads.
+    let keys: Vec<&str> = fr.as_object().unwrap().keys().map(String::as_str).collect();
+    assert_eq!(
+        keys,
+        [
+            "passed_filter_reads",
+            "low_quality_reads",
+            "too_many_N_reads",
+            "adapter_dimer_reads",
+            "too_short_reads",
+            "too_long_reads",
+        ]
+    );
+}
+
+#[test]
+fn test_merge_filtering_result_omits_adapter_dimer_when_absent() {
+    // Older fastp versions predate adapter_dimer_reads; merging must not invent it.
+    let chunk = json!({
+        "summary": {
+            "before_filtering": {"total_reads": 10, "total_bases": 100, "q20_bases": 90, "q30_bases": 80},
+            "after_filtering": {"total_reads": 10, "total_bases": 100, "q20_bases": 90, "q30_bases": 80}
+        },
+        "filtering_result": {
+            "passed_filter_reads": 10,
+            "low_quality_reads": 0,
+            "too_many_N_reads": 0,
+            "too_short_reads": 0,
+            "too_long_reads": 0
+        },
+        "duplication": {"rate": 0.0},
+        "adapter_cutting": {"adapter_trimmed_reads": 0, "adapter_trimmed_bases": 0}
+    });
+    let merged = merge_jsons(&[chunk.clone(), chunk]).expect("merge should succeed");
+    let fr = &merged["filtering_result"];
+    assert!(fr.get("adapter_dimer_reads").is_none());
+    assert_eq!(fr["passed_filter_reads"].as_i64(), Some(20));
 }
 
 #[test]

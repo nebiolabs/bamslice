@@ -29,6 +29,7 @@
         "passed_filter_reads": 1900,
         "low_quality_reads": 60,
         "too_many_N_reads": 20,
+        "adapter_dimer_reads": 205,
         "too_short_reads": 20,
         "too_long_reads": 0
     },
