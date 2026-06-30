@@ -186,8 +186,15 @@ fn merge_adapter_counts(dicts: &[&Map<String, Value>]) -> Result<Map<String, Val
 ///
 /// Errors if any required count field is missing or not an integer.
 fn merge_filtering_result(results: &[Value]) -> Result<Value> {
-    let mut fields = vec!["passed_filter_reads", "low_quality_reads", "too_many_N_reads"];
-    if results.iter().any(|r| r.get("adapter_dimer_reads").is_some()) {
+    let mut fields = vec![
+        "passed_filter_reads",
+        "low_quality_reads",
+        "too_many_N_reads",
+    ];
+    if results
+        .iter()
+        .any(|r| r.get("adapter_dimer_reads").is_some())
+    {
         fields.push("adapter_dimer_reads");
     }
     fields.push("too_short_reads");
