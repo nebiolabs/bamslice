@@ -133,3 +133,12 @@ test process_blocks/bam/small_500kb ... bench:  28,703,267 ns/iter (+/- 766,163)
 test process_blocks/bam/medium_1mb ... bench:  57,390,052 ns/iter (+/- 1,237,118)
 test process_blocks/bam/large_5mb ... bench: 291,375,352 ns/iter (+/- 700,557)
 ----------------------------------------
+
+=== 2026-07-01 13:23:40 | 654fa6e | main | AMD EPYC 9V74 80-Core Processor ===
+test process_blocks/fastq/small_500kb ... bench:  15,295,556 ns/iter (+/- 116,053)
+test process_blocks/fastq/medium_1mb ... bench:  30,460,328 ns/iter (+/- 191,018)
+test process_blocks/fastq/large_5mb ... bench: 151,690,222 ns/iter (+/- 3,059,516)
+test process_blocks/bam/small_500kb ... bench:  30,683,054 ns/iter (+/- 55,120)
+test process_blocks/bam/medium_1mb ... bench:  61,079,235 ns/iter (+/- 94,171)
+test process_blocks/bam/large_5mb ... bench: 310,290,789 ns/iter (+/- 998,210)
+----------------------------------------
